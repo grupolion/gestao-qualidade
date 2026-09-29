@@ -319,13 +319,17 @@ async function editorRnc(el) {
   // sugestões automáticas (só preenchem vazio ou sugestão anterior)
   const sugerir = (k, v) => { v = Math.round(v * 100) / 100; if (!num(r[k]) || num(r[k]) === num(r["auto_" + k])) r[k] = v; r["auto_" + k] = v; };
   const sp = (S.cfg.setor_params || {})[r.setor_origem] || {};
-  sugerir("custo_hora", num(sp.hora_media) || num(P.custo_hora_padrao));
+  if (!fin) r.custo_hora = num(sp.hora_media) || num(P.custo_hora_padrao);
   const MAQ = S.cfg.maquinas || [];
-  const mq = MAQ.find((m) => m.codigo === r.maquina); if (mq) sugerir("custo_hora_maquina", num(mq.custo_hora));
+  if (!Array.isArray(r.maquinas)) r.maquinas = r.maquina ? [{ codigo: r.maquina, horas: num(r.horas_maquina) }] : [];
+  if (!fin) {
+    r.maquinas.forEach((m) => { const c = MAQ.find((x) => x.codigo === m.codigo); m.valor_hora = c ? num(c.custo_hora) : num(m.valor_hora); });
+    const hm = r.maquinas.reduce((s, m) => s + num(m.horas), 0), vm = r.maquinas.reduce((s, m) => s + num(m.horas) * num(m.valor_hora), 0);
+    r.horas_maquina = hm; r.custo_hora_maquina = hm ? Math.round((vm / hm) * 100) / 100 : 0;
+  }
   if (r.produto && FT.produtos[r.produto]) {
-    if (r.produto_inteiro) sugerir("custo_material", FT.produtos[r.produto].valor * num(r.qtd_nc));
-    else if ((r.pecas_subst || []).length) sugerir("custo_material", r.pecas_subst.reduce((s, p) => s + num(p.qtd) * num(p.valor_unit), 0));
-  } else { const pc = (S.cfg.pecas || []).find((p) => p.codigo === r.cod_peca); if (pc) sugerir("custo_material", num(pc.custo_unit) * num(r.qtd_nc)); }
+    if (!fin) r.custo_material = Math.round((r.produto_inteiro ? FT.produtos[r.produto].valor * num(r.qtd_nc) : (r.pecas_subst || []).reduce((s, p) => s + num(p.qtd) * num(p.valor_unit), 0)) * 100) / 100;
+  }
 
   const defeitos = (S.cfg.setores || {})[r.setor_origem] || [];
   const tit = novo ? "Nova não conformidade" : `${trat ? "Tratativa" : "Apontamento"} ${r.id}`;
@@ -368,10 +372,17 @@ async function editorRnc(el) {
       }
     }
     h += card(ft + row("c4 keep2", inum("horas_homem", "Horas de retrabalho (pessoas)", r.horas_homem, o),
-        inum("custo_hora", "Valor por hora (R$/h)", r.custo_hora, { ...o, help: "Hora média do setor de origem (admin) ou valor padrão" }),
-        MAQ.length ? isel("maquina", "Máquina", MAQ.map((m) => [m.codigo, `${m.codigo} — ${m.descricao}`]), r.maquina, { ...o, ph: "" }) : "",
-        inum("horas_maquina", "Horas de máquina", r.horas_maquina, o)) +
-      row("c4 keep2", inum("custo_hora_maquina", "Valor por hora da máquina (R$/h)", r.custo_hora_maquina, o), inum("custo_material", "Material e refugo (R$)", r.custo_material, o),
+        inum("custo_hora", "Valor hora-homem (R$/h)", r.custo_hora, { dis: true, help: "Automático: hora média do setor de origem (cadastro admin)" }),
+        inum("custo_material", "Material e refugo (R$)", r.custo_material, { dis: true, help: "Automático: soma das partes/produto selecionados na ficha técnica" })) +
+      `<div class="field"><label>Máquinas usadas no retrabalho</label>` +
+      (r.maquinas.length ? `<div class="tbl-wrap"><table class="edit"><thead><tr><th>Máquina</th><th>Horas</th><th>R$/h</th><th>Custo</th><th></th></tr></thead><tbody>` +
+        r.maquinas.map((m, i) => { const c = MAQ.find((x) => x.codigo === m.codigo);
+          return `<tr><td>${esc(c ? `${c.codigo} — ${c.descricao}` : m.codigo)}</td><td><input type="number" step="any" min="0" inputmode="decimal" data-mh="${i}" value="${esc(m.horas ?? "")}" ${dis ? "disabled" : ""}></td>
+            <td>${brl(m.valor_hora)}</td><td>${brl(num(m.horas) * num(m.valor_hora))}</td><td>${dis ? "" : `<button class="btn sm danger" data-mrm="${i}">✕</button>`}</td></tr>`; }).join("") +
+        `</tbody></table></div>` : `<div class="caption">Nenhuma máquina adicionada.</div>`) +
+      (!dis && MAQ.length ? isel("_addmaq", "Adicionar máquina", MAQ.filter((m) => !r.maquinas.some((x) => x.codigo === m.codigo)).map((m) => [m.codigo, `${m.codigo} — ${m.descricao}`]), "", { ph: "Selecione para adicionar…" }) : "") +
+      (!MAQ.length ? `<div class="caption">Nenhuma máquina cadastrada no painel admin.</div>` : "") + `</div>` +
+      row("c4 keep2",
         `<div class="metric"><div class="l">Custo total da ocorrência</div><div class="v" id="e-custo">${brl(custo(r))}</div></div>`), "Custo da não conformidade");
   } else if (sec.startsWith("3")) {
     const A = S.acoes.filter((a) => a.rnc_id === r.id);
@@ -411,6 +422,7 @@ async function editorRnc(el) {
   $$("[data-k]", el).forEach((i) => {
     const ev = i.tagName === "SELECT" || i.type === "checkbox" ? "change" : "input";
     i.addEventListener(ev, () => {
+      if (i.dataset.k === "_addmaq") { if (i.value) r.maquinas.push({ codigo: i.value, horas: 0 }); return editorRnc(el); }
       set(i.dataset.k, i.type === "checkbox" ? i.checked : i.type === "number" ? num(i.value) : i.value);
       if (i.dataset.k === "setor_origem") r.tipo_nc = "";
       if (i.dataset.k === "origem" && !CLI_ORIG.includes(r.origem)) r.cliente = "";
@@ -427,6 +439,8 @@ async function editorRnc(el) {
     else r[k] = v;
     editorRnc(el);
   }));
+  $$("[data-mh]", el).forEach((i) => i.addEventListener("change", () => { r.maquinas[+i.dataset.mh].horas = num(i.value); editorRnc(el); }));
+  $$("[data-mrm]", el).forEach((b) => (b.onclick = () => { r.maquinas.splice(+b.dataset.mrm, 1); editorRnc(el); }));
   $$("[data-pq]", el).forEach((i) => i.addEventListener("change", () => { r.pecas_subst[+i.dataset.pq].qtd = num(i.value); editorRnc(el); }));
   $$("[data-prm]", el).forEach((b) => (b.onclick = () => { r.pecas_subst.splice(+b.dataset.prm, 1); editorRnc(el); }));
   $$("[data-a]", el).forEach((b) => (b.onclick = () => { E.aba = +b.dataset.a; editorRnc(el); }));
