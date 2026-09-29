@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260929b";
+import * as db from "./db.js?v=20260929c";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929b";
-import { paginaAdmin } from "./admin.js?v=20260929b";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929c";
+import { paginaAdmin } from "./admin.js?v=20260929c";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -80,19 +80,20 @@ function shell() {
   $("#bt-sair").onclick = async () => { await db.sair(); location.reload(); };
   $("#bt-senha").onclick = trocarSenha;
 }
-// a cada navegação: limpa caches em memória e busca tudo de novo no banco
-let _nav = 0;
-async function navegar(p, extra) {
+// navegação instantânea: desenha com os dados em memória e atualiza em segundo plano
+let _nav = 0, _bg = null;
+function navegar(p, extra) {
   if (S.edit && S.pagina !== p) guardarRascunho();
   S.pagina = p; S.edit = extra || null;
   $$("[data-nav]").forEach((b) => b.classList.toggle("on", b.dataset.nav === p));
-  const n = ++_nav, pg = $("#page");
-  if (pg) pg.innerHTML = `<div class="loading">Atualizando dados…</div>`;
-  window.scrollTo(0, 0);
-  fichaCache = null; db.limparCache();
-  try { S.cfg = await db.carregarConfig(); await carregar(); }
-  catch (e) { console.error(e); toast("Falha ao atualizar: " + e.message, "⚠️"); }
-  if (n === _nav) render();
+  const n = ++_nav;
+  render(); window.scrollTo(0, 0);
+  if (_bg) return; // já existe uma atualização em andamento
+  const antes = JSON.stringify([S.rnc, S.acoes]);
+  _bg = carregar().then(() => {
+    // redesenha só se algo mudou e o usuário não está editando
+    if (n === _nav && !S.edit && !document.querySelector(".modal") && JSON.stringify([S.rnc, S.acoes]) !== antes) render();
+  }).catch((e) => console.warn(e)).finally(() => { _bg = null; });
 }
 function guardarRascunho() { if (S.edit?.rec) S.draft = { tipo: S.edit.tipo, rec: JSON.parse(JSON.stringify(S.edit.rec)), pagina: S.pagina }; }
 function render() {
@@ -144,6 +145,7 @@ async function iniciar() {
   S.cfg = await db.carregarConfig();
   await carregar();
   shell(); render();
+  setTimeout(() => ficha(), 800); // pré-carrega a ficha técnica uma vez por sessão
   clearInterval(S.timer);
   S.timer = setInterval(async () => {
     if (S.edit || document.querySelector(".modal") || document.hidden || S.pagina === ADMIN_MENU) return;
