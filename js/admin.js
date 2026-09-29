@@ -1,6 +1,6 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260929j";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260929j";
+import * as db from "./db.js?v=20260929-security1";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260929-security1";
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
@@ -82,10 +82,10 @@ function usuarios(box, { S }, again) {
       P.map((p) => ({ ...p, ativo: p.ativo ? "Sim" : "Não", setores: p.perfil === "admin" ? "(todos)" : (p.setores || []).join(", ") })), { h: 320 }), "Usuários") +
     `<div class="card" id="nu"><div class="ttl">Novo usuário</div>` + alerta("info", "Somente o <b>administrador</b> cria usuários. Cada usuário acessa com login e senha.") +
       row("c2", inp("login", "Login (sem espaços)", ""), inp("nome", "Nome completo", "")) + row("c3", inp("s1", "Senha", "", { type: "password" }), inp("s2", "Repita a senha", "", { type: "password" }),
-      isel("perfil", "Perfil", [["usuario", "Usuário"], ["admin", "Administrador"]], "usuario")) + opSet() + `<button class="btn primary" id="criar">Criar usuário</button></div>` +
+      isel("perfil", "Perfil", [["usuario", "Usuário"], ["admin", "Administrador"]], "usuario")) + opSet() + (db.criptoAtiva() ? inp("senhaAdmin", "Sua senha de administrador", "", { type: "password" }) : "") + `<button class="btn primary" id="criar">Criar usuário</button></div>` +
     (u ? `<div class="card" id="eu"><div class="ttl">Editar / excluir usuário</div>` + isel("u", "Usuário", P.map((p) => [p.id, `${p.nome} (${p.login})`]), u.id) +
       row("c3", inp("nome", "Nome", u.nome), isel("perfil", "Perfil", [["usuario", "Usuário"], ["admin", "Administrador"]], u.perfil), `<div class="field"><label>&nbsp;</label>${ichk("ativo", "Ativo", u.ativo)}</div>`) +
-      opSet(u.setores || []) + inp("senha", "Nova senha (deixe em branco para manter)", "", { type: "password" }) +
+      opSet(u.setores || []) + (db.criptoAtiva() ? inp("senhaAdmin", "Sua senha de administrador (para redefinir senha)", "", { type: "password" }) : "") + inp("senha", "Nova senha (deixe em branco para manter)", "", { type: "password" }) +
       `<div class="btnrow" style="margin-top:1rem"><button class="btn primary" id="salv">💾 Salvar alterações</button><button class="btn danger" id="exc">🗑 Excluir usuário</button></div></div>` : "");
   const v = (id, k) => $(`#${id} [data-k=${k}]`);
   const sets = (id) => $$(`#${id} [data-set]`).filter((c) => c.checked).map((c) => c.value);
@@ -93,9 +93,9 @@ function usuarios(box, { S }, again) {
     const login = v("nu", "login").value.trim().toLowerCase();
     if (!login || /\s/.test(login)) return toast("Informe um login sem espaços.");
     if (P.some((p) => p.login === login)) return toast(`O login '${login}' já existe.`);
-    if (v("nu", "s1").value.length < 4) return toast("A senha deve ter pelo menos 4 caracteres.");
+    if (v("nu", "s1").value.length < 12) return toast("A senha deve ter pelo menos 12 caracteres.");
     if (v("nu", "s1").value !== v("nu", "s2").value) return toast("As senhas não conferem.");
-    try { await db.criarUsuario({ login, nome: v("nu", "nome").value.trim() || login, senha: v("nu", "s1").value, perfil: v("nu", "perfil").value, setores: sets("nu") });
+    try { await db.criarUsuario({ login, nome: v("nu", "nome").value.trim() || login, senha: v("nu", "s1").value, perfil: v("nu", "perfil").value, setores: sets("nu"), senhaAdmin: v("nu", "senhaAdmin")?.value });
       toast(`Usuário ${login} criado.`); await again(); } catch (e) { toast("Erro: " + e.message); }
   };
   if (!u) return;
@@ -104,9 +104,10 @@ function usuarios(box, { S }, again) {
   $("#salv").onclick = async () => {
     const perfil = v("eu", "perfil").value, ativo = v("eu", "ativo").checked, senha = v("eu", "senha").value;
     if ((perfil !== "admin" || !ativo) && !adminsAtivos(u.id)) return toast("É preciso manter ao menos um administrador ativo.");
-    if (senha && senha.length < 4) return toast("A senha deve ter pelo menos 4 caracteres.");
-    try { await db.salvarPerfil(u.id, { nome: v("eu", "nome").value.trim() || u.login, perfil, ativo, setores: sets("eu") });
-      if (senha) await db.definirSenha(u.id, senha);
+    if (senha && senha.length < 12) return toast("A senha deve ter pelo menos 12 caracteres.");
+    try {
+      if (senha) await db.definirSenha(u.id, senha, v("eu", "senhaAdmin")?.value);
+      await db.salvarPerfil(u.id, { nome: v("eu", "nome").value.trim() || u.login, perfil, ativo, setores: sets("eu") });
       toast(`Usuário ${u.login} atualizado.`); await again(); } catch (e) { toast("Erro: " + e.message); }
   };
   $("#exc").onclick = async () => {
@@ -136,7 +137,8 @@ function cadastro(box, { S }, again, chave) {
   $("#imp").onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     try {
-      const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+      if (f.size > 10 * 1024 * 1024) throw new Error("A planilha deve ter até 10 MB.");
+      const wb = XLSX.read(await f.arrayBuffer(), { type: "array", cellHTML: false });
       const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
       const sem = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z]/g, "");
       const mapa = {}; for (const [k, t] of c.cols) mapa[sem(t)] = k, mapa[sem(k)] = k;
@@ -201,7 +203,7 @@ async function dados(box) {
       <td><button class="btn sm danger" data-del="${esc(r.id)}">🗑 Excluir</button></td></tr>`).join("") || `<tr><td colspan="6">Nenhum registro.</td></tr>`}</tbody></table></div>`) +
     card(`<div class="ttl" style="color:var(--err)">⚠️ Apagar TODOS os dados de apontamentos e RNCs</div>
     <div class="alert warn">Apaga definitivamente <b>${R.length} RNC(s)</b>, <b>${A.length} ação(ões)</b> e as fotos. Cadastros (setores, usuários, máquinas, peças, ficha técnica) são mantidos. <b>Não há como desfazer.</b></div>` +
-    row("c2", inp("mestra", "Chave mestra da criptografia", "", { type: "password", id2: "d-m" }) + inp("conf", 'Digite APAGAR para confirmar', "", { id2: "d-c" })) +
+    inp("senhaAtual", "Sua senha de administrador", "", { type: "password", id2: "d-s" }) + row("c2", inp("mestra", "Chave mestra da criptografia", "", { type: "password", id2: "d-m" }) + inp("conf", 'Digite APAGAR para confirmar', "", { id2: "d-c" })) +
     `<div class="btnrow"><button class="btn danger" id="d-all">🗑 Apagar todos os dados</button></div><div id="d-msg"></div>`);
   $("#d-q").oninput = (e) => { const q = e.target.value.toLowerCase(); $$("#d-tb tr[data-q]").forEach((tr) => (tr.style.display = tr.dataset.q.includes(q) ? "" : "none")); };
   const vinc = (id) => A.filter((a) => a.rnc_id === id);
@@ -209,7 +211,6 @@ async function dados(box) {
     const id = b.dataset.del, n = vinc(id).length;
     if (!(await confirmar(`Excluir ${id}${n ? ` e ${n} ação(ões) vinculada(s)` : ""}? Vai para a lixeira.`))) return;
     try { const u = (await db.meuPerfil())?.login || "admin";
-      for (const a of vinc(id)) await db.excluir("acoes", a.id, u);
       await db.excluir("rnc", id, u); toast(`${id} excluída.`); dados(box);
     } catch (e) { toast("Erro: " + e.message, "⚠️"); }
   }));
@@ -219,7 +220,7 @@ async function dados(box) {
     if (!m) { msg.innerHTML = alerta("error", "Informe a chave mestra."); return; }
     try { await db.verificarMestra(m); } catch (e) { msg.innerHTML = alerta("error", esc(e.message)); return; }
     if (!(await confirmar("Última confirmação: apagar TODOS os apontamentos, RNCs, ações e fotos?"))) return;
-    try { msg.innerHTML = alerta("info", "Apagando…"); await db.apagarTodosDados(m); toast("Todos os dados foram apagados."); dados(box); }
+    try { msg.innerHTML = alerta("info", "Apagando…"); await db.apagarTodosDados(m, $("#d-s").value); toast("Todos os dados foram apagados."); dados(box); }
     catch (e) { msg.innerHTML = alerta("error", esc(e.message)); }
   };
 }
@@ -227,8 +228,9 @@ async function dados(box) {
 // ---------- Segurança: chave mestra ----------
 async function seguranca(box) {
   const ativa = db.criptoAtiva();
-  if (!ativa) {
-    box.innerHTML = card(`<div class="alert info">Custos e ficha técnica estão <b>sem criptografia</b>. Ao ativar, eles passam a ser gravados cifrados (AES-256) no Supabase.
+  const pendente = ativa ? await db.criptoPendente() : false;
+  if (!ativa || pendente) {
+    box.innerHTML = card(`<div class="alert info">${pendente ? "A migração ainda tem dados pendentes. Informe a mesma chave mestra para retomar." : "Custos e ficha técnica estão sem criptografia. Ao ativar, os dados sensíveis passam a ser cifrados."}
       Só quem tem login liberado consegue ler. <b>Guarde a chave mestra fora do sistema</b>: sem ela e sem nenhuma senha de administrador válida, os dados não podem ser recuperados.</div>` +
       row("c2", inp("m1", "Chave mestra (mín. 12 caracteres)", "", { type: "password", id2: "f-m1" }) + inp("m2", "Repita a chave mestra", "", { type: "password", id2: "f-m2" })) +
       inp("sa", "Sua senha de administrador", "", { type: "password", id2: "f-sa" }) +
@@ -243,7 +245,7 @@ async function seguranca(box) {
     return;
   }
   const sem = await db.usuariosSemChave();
-  box.innerHTML = card(`<div class="alert ok">🔒 Criptografia ativa. Custos e ficha técnica estão cifrados no Supabase.</div>` +
+  box.innerHTML = card(`<div class="alert ok">🔒 Criptografia ativa. Migração dos campos sensíveis verificada. Descrições e fotos não são cifradas.</div>` +
     (sem.length ? `<div class="alert warn">Usuários ainda sem acesso aos dados (não conseguem entrar): <b>${sem.map((u) => esc(u.login)).join(", ")}</b>.
       Para liberar, vá em <b>Usuários → Editar</b> e defina uma nova senha para cada um.</div>` : `<div class="caption">Todos os usuários têm acesso liberado.</div>`)) +
     card(`<b>Recuperar acesso com a chave mestra</b><div class="caption">Use se a sua senha de admin foi redefinida e os custos pararam de aparecer.</div>` +

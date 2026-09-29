@@ -1,5 +1,8 @@
 // Helpers de apresentação (equivalente ao ui.py)
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Only the raster data URLs produced by our upload pipeline are accepted.
+export const imagemSegura = (src) => typeof src === "string" && src.length <= 12 * 1024 * 1024 &&
+  /^data:image\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(src) ? src : "";
 export const $ = (s, el = document) => el.querySelector(s);
 export const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 export const num = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return isFinite(n) ? n : 0; };
@@ -81,7 +84,10 @@ export function modal(html, { sm = false, onClose } = {}) {
   m.fechar = fechar; return m;
 }
 export function verImagem(src) {
-  const m = document.createElement("div"); m.className = "modal img"; m.innerHTML = `<img src="${src}" alt="">`;
+  src = imagemSegura(src);
+  if (!src) return;
+  const m = document.createElement("div"); m.className = "modal img";
+  const img = document.createElement("img"); img.src = src; img.alt = ""; m.append(img);
   m.onclick = () => m.remove(); document.body.append(m);
 }
 export function confirmar(msg, rotulo = "Confirmar exclusão") {
@@ -93,7 +99,12 @@ export function confirmar(msg, rotulo = "Confirmar exclusão") {
   });
 }
 export function baixarCSV(nome, cols, rows) {
-  const q = (v) => { v = String(v ?? ""); return /[;"\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  const q = (v) => {
+    const numeric = typeof v === "number" && Number.isFinite(v);
+    v = String(v ?? "");
+    if (!numeric && /^[\s\u0000-\u001f]*[=+@-]/.test(v)) v = "'" + v;
+    return /[;"\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  };
   const txt = [cols.map((c) => q(c[1])).join(";"), ...rows.map((r) => cols.map((c) => q(c[2] === "brl" ? num(r[c[0]]).toFixed(2).replace(".", ",") : r[c[0]])).join(";"))].join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + txt], { type: "text/csv;charset=utf-8" })); a.download = nome; a.click();

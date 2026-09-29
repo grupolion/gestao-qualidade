@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260929j";
+import * as db from "./db.js?v=20260929-security1";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929j";
-import { paginaAdmin } from "./admin.js?v=20260929j";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20260929-security1";
+import { paginaAdmin } from "./admin.js?v=20260929-security1";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -115,9 +115,9 @@ function trocarSenha() {
   m.querySelector(".btn.primary").onclick = async () => {
     const v = (k) => m.querySelector(`[data-k=${k}]`).value;
     const msg = m.querySelector(".msg");
-    if (v("n").length < 4) return (msg.innerHTML = alerta("error", "A senha deve ter pelo menos 4 caracteres."));
+    if (v("n").length < 12) return (msg.innerHTML = alerta("error", "A senha deve ter pelo menos 12 caracteres."));
     if (v("n") !== v("r")) return (msg.innerHTML = alerta("error", "As senhas não conferem."));
-    try { await db.trocarSenha(v("a"), v("n"), S.user.login); m.fechar(); toast("Senha alterada."); }
+    try { await db.trocarSenha(v("a"), v("n"), S.user.login); m.fechar(); location.reload(); }
     catch (e) { msg.innerHTML = alerta("error", esc(e.message)); }
   };
 }
@@ -474,7 +474,7 @@ async function editorRnc(el) {
   } else {
     const F = E.fotos || [];
     h += card((r.id ? "" : `<div class="caption">Os anexos serão enviados ao salvar o registro.</div>`) +
-      `<div class="fotos">${F.map((f) => `<figure><img src="${f.conteudo}" alt="${esc(f.nome)}" data-img><figcaption>${esc(f.nome)}</figcaption>${dis ? "" : `<button class="btn sm danger" data-fdel="${f.id}">Remover</button>`}</figure>`).join("")}
+      `<div class="fotos">${F.map((f) => `<figure><img src="${imagemSegura(f.conteudo)}" alt="${esc(f.nome)}" data-img><figcaption>${esc(f.nome)}</figcaption>${dis ? "" : `<button class="btn sm danger" data-fdel="${esc(f.id)}">Remover</button>`}</figure>`).join("")}
        ${(E.novas || []).map((f) => `<figure><img src="${URL.createObjectURL(f)}" alt=""><figcaption>(nova) ${esc(f.name)}</figcaption></figure>`).join("")}</div>` +
       (dis ? "" : `<div class="field" style="margin-top:1rem"><label>Adicionar fotos</label><input type="file" id="e-fotos" accept="image/*" multiple></div>`), "Fotos e evidências") +
       exp("Histórico", (r.historico || []).slice().reverse().map((x) => `<div class="caption">${esc((x.em || "").replace("T", " "))} · ${esc(nome(x.por))} · ${esc(x.acao === "status" ? `${x.de} → ${x.para}` : x.acao)}</div>`).join("") ||
@@ -745,7 +745,7 @@ async function cartao(id) {
     `<h4>Tarefas (${A.filter((a) => a.status === "Concluída").length}/${A.length} concluídas)</h4>` +
     (A.length ? tabela([["id", "Nº"], ["o_que", "O que", "wrap"], ["quem", "Responsável"], ["prazo", "Prazo"], ["status", "Status"], ["ev", "Evidência", "wrap"]],
       A.map((a) => ({ ...a, quem: nome(a.quem), prazo: fdate(a.quando) + (atrasada(a) ? " ⚠️" : ""), ev: a.evidencia || "" })), { h: 260 }) : `<div class="caption">Nenhuma tarefa.</div>`) +
-    (F.length ? `<h4 style="margin-top:1rem">Fotos</h4><div class="fotos">${F.map((f) => `<figure><img src="${f.conteudo}" data-img alt=""><figcaption>${esc(f.nome)}</figcaption></figure>`).join("")}</div>` : "") +
+    (F.length ? `<h4 style="margin-top:1rem">Fotos</h4><div class="fotos">${F.map((f) => `<figure><img src="${imagemSegura(f.conteudo)}" data-img alt=""><figcaption>${esc(f.nome)}</figcaption></figure>`).join("")}</div>` : "") +
     (arr(r.evolucao).length ? `<h4 style="margin-top:1rem">Evolução das etapas</h4>` + arr(r.evolucao).slice().reverse().map((x) =>
       card(`<div class="caption">${esc((x.em || "").replace("T", " "))} · ${esc(nome(x.por))} · <b>${esc(x.de)} → ${esc(x.para)}</b>${x.fotos ? ` · 📷 ${x.fotos}` : ""}</div><p style="white-space:pre-wrap;margin:.3rem 0 0">${esc(x.texto)}</p>`)).join("") : "") +
     exp("Histórico", (r.historico || []).slice().reverse().map((x) => `<div class="caption">${esc((x.em || "").replace("T", " "))} · ${esc(nome(x.por))} · ${esc(x.acao === "status" ? `${x.de} → ${x.para}` : x.acao)}</div>`).join("")) +

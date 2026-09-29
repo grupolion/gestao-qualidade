@@ -19,14 +19,16 @@ export const gerarDEK = () => crypto.subtle.generateKey({ name: "AES-GCM", lengt
 export async function embrulhar(dek, segredo) {
   const salt = rand(16), iv = rand(12);
   const raw = new Uint8Array(await crypto.subtle.exportKey("raw", dek));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await derivar(segredo, salt, ITER), raw));
-  raw.fill(0);
-  return { salt: b64(salt), iv: b64(iv), wrapped: b64(ct), iter: ITER };
+  try {
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await derivar(segredo, salt, ITER), raw));
+    return { salt: b64(salt), iv: b64(iv), wrapped: b64(ct), iter: ITER };
+  } finally { raw.fill(0); }
 }
-export async function desembrulhar(reg, segredo, exportavel = true) {
+export async function desembrulhar(reg, segredo, exportavel = false) {
   try {
     const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(reg.iv) }, await derivar(segredo, unb64(reg.salt), reg.iter), unb64(reg.wrapped));
-    return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, exportavel, ["encrypt", "decrypt"]);
+    try { return await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, exportavel, ["encrypt", "decrypt"]); }
+    finally { new Uint8Array(raw).fill(0); }
   } catch { throw new Error("Chave ou senha incorreta."); }
 }
 export async function cifrar(dek, obj) {
@@ -41,9 +43,26 @@ export async function decifrar(dek, s) {
 }
 export const cifrado = (v) => typeof v === "string" && v.startsWith(PREFIXO);
 
-// DEK persistida no IndexedDB como CryptoKey (não pode ser lida como texto por scripts)
+// Persist only non-extractable usage keys. Same-origin scripts can still use them.
+export async function chaveDeUso(dek) {
+  if (!dek.extractable) return dek;
+  const raw = new Uint8Array(await crypto.subtle.exportKey("raw", dek));
+  try { return await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]); }
+  finally { raw.fill(0); }
+}
 const IDB = () => new Promise((ok, erro) => { const r = indexedDB.open("gq-cripto", 1); r.onupgradeneeded = () => r.result.createObjectStore("k"); r.onsuccess = () => ok(r.result); r.onerror = () => erro(r.error); });
 async function tx(modo, f) { const d = await IDB(); return new Promise((ok, erro) => { const t = d.transaction("k", modo); const r = f(t.objectStore("k")); t.oncomplete = () => ok(r?.result); t.onerror = () => erro(t.error); }); }
-export const guardarLocal = (uid, dek) => tx("readwrite", (s) => s.put(dek, uid));
-export const lerLocal = (uid) => tx("readonly", (s) => s.get(uid)).catch(() => null);
+export async function guardarLocal(uid, dek) {
+  if (localStorage.getItem("gq-manter") !== "1") { await limparLocal(); return; }
+  const uso = await chaveDeUso(dek);
+  await tx("readwrite", (s) => s.put(uso, uid));
+}
+export async function lerLocal(uid) {
+  if (localStorage.getItem("gq-manter") !== "1") { await limparLocal(); return null; }
+  const dek = await tx("readonly", (s) => s.get(uid)).catch(() => null);
+  if (!dek) return null;
+  const uso = await chaveDeUso(dek);
+  if (dek.extractable) await guardarLocal(uid, uso); // migrate legacy caches
+  return uso;
+}
 export const limparLocal = () => tx("readwrite", (s) => s.clear()).catch(() => {});
