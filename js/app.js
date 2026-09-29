@@ -24,6 +24,15 @@ const BRAND = "#d4501e";
 const MENU = ["📊 Visão geral", "📝 Não conformidades", "🗂️ Tratativas PDCA", "✅ Plano de ações"];
 const ADMIN_MENU = "⚙️ Administração";
 const LOGO = "assets/logo-lion-fitness.png";
+// Icons are presentation only; MENU values remain the navigation keys.
+const NAV_ICONS = [
+  '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  '<path d="M14 3H5v18h14V8Z"/><path d="M14 3v5h5M8 12h8M8 16h6"/>',
+  '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m6-16v16M5 8h2m4 0h2m4 0h2"/>',
+  '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 12 3 3 7-7"/>',
+  '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'
+];
+const menuLabel = (m, i) => `<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_ICONS[i]}</svg><span>${esc(m.slice(m.indexOf(" ") + 1))}</span>`;
 
 // ---------------- estado ----------------
 const S = { user: null, cfg: null, perfis: [], rnc: [], acoes: [], pagina: MENU[0], edit: null, draft: null, filtros: {}, timer: null };
@@ -56,9 +65,9 @@ function shell() {
     <aside class="sidebar">
       <div class="brand"><img src="${LOGO}" alt="Lion Fitness"></div>
       <div class="caption">GESTÃO DA QUALIDADE</div><hr>
-      <nav class="nav">${menu.map((m) => `<button data-nav="${esc(m)}" class="${m === S.pagina ? "on" : ""}">${esc(m)}</button>`).join("")}</nav><hr>
+      <nav class="nav" aria-label="Navegação principal">${menu.map((m, i) => `<button data-nav="${esc(m)}" class="${m === S.pagina ? "on" : ""}">${menuLabel(m, i)}</button>`).join("")}</nav><hr>
       <div><b>${esc(S.user.nome)}</b><div class="caption">${esc(S.user.login)} · ${admin() ? "Administrador" : "Usuário"}</div></div>
-      <button class="btn block" id="bt-senha">🔑 Trocar senha</button>
+      <button class="btn block" id="bt-senha">Trocar senha</button>
       <button class="btn block" id="bt-sair">Sair</button>
       <div class="caption">Dados atualizados automaticamente.</div>
     </aside><div class="backdrop"></div>
