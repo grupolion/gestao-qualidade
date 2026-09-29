@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260929c";
+import * as db from "./db.js?v=20260929d";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929c";
-import { paginaAdmin } from "./admin.js?v=20260929c";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929d";
+import { paginaAdmin } from "./admin.js?v=20260929d";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -95,6 +95,7 @@ function navegar(p, extra) {
     if (n === _nav && !S.edit && !document.querySelector(".modal") && JSON.stringify([S.rnc, S.acoes]) !== antes) render();
   }).catch((e) => console.warn(e)).finally(() => { _bg = null; });
 }
+const secsAtual = (E) => E._sec;
 function guardarRascunho() { if (S.edit?.rec) S.draft = { tipo: S.edit.tipo, rec: JSON.parse(JSON.stringify(S.edit.rec)), pagina: S.pagina }; }
 function render() {
   const pg = $("#page"); if (!pg) return;
@@ -140,6 +141,14 @@ function telaLogin(erro = "") {
     catch (err) { $("#flogin .msg").innerHTML = alerta("error", esc(err.message)); }
   };
 }
+function avisoFicha() {
+  if ($("#aviso-ficha")) return;
+  const d = document.createElement("div"); d.id = "aviso-ficha";
+  d.style.cssText = "position:fixed;left:50%;bottom:1rem;transform:translateX(-50%);z-index:1200;max-width:92vw;background:var(--ink);color:var(--surface,#fff);padding:.8rem 1rem;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.3);display:flex;gap:.8rem;align-items:center;flex-wrap:wrap";
+  d.innerHTML = `<span>📄 A ficha técnica foi atualizada. ${S.edit ? "Salve o que estiver editando e " : ""}recarregue a página.</span><button class="btn primary sm">Recarregar agora</button>`;
+  d.querySelector("button").onclick = () => { if (S.edit) guardarRascunho(); location.reload(); };
+  document.body.append(d);
+}
 async function iniciar() {
   app().innerHTML = `<div class="loading">Carregando dados…</div>`;
   S.cfg = await db.carregarConfig();
@@ -147,7 +156,9 @@ async function iniciar() {
   shell(); render();
   setTimeout(() => ficha(), 800); // pré-carrega a ficha técnica uma vez por sessão
   clearInterval(S.timer);
+  try { S.fv = await db.fichaVersao(); } catch {}
   S.timer = setInterval(async () => {
+    try { const v = await db.fichaVersao(); if (S.fv != null && v != null && v !== S.fv) avisoFicha(); if (S.fv == null) S.fv = v; } catch {}
     if (S.edit || document.querySelector(".modal") || document.hidden || S.pagina === ADMIN_MENU) return;
     try { await carregar(); render(); } catch {}
   }, Math.max(10, num(S.cfg.parametros.refresh_segundos) || 30) * 1000);
@@ -329,11 +340,19 @@ function fechar() { const v = S.edit?.volta || S.pagina; S.edit = null; S.draft 
 
 // ---------------- Editor RNC ----------------
 let fichaCache = null;
-async function ficha() { if (!fichaCache) { try { fichaCache = await db.carregarFicha(); } catch { fichaCache = { produtos: {}, partes: {} }; } } return fichaCache; }
+let fichaP = null; // carga única compartilhada (evita baixar a ficha duas vezes ao mesmo tempo)
+function ficha() {
+  if (fichaCache) return Promise.resolve(fichaCache);
+  return (fichaP ||= db.carregarFicha().then((f) => (fichaCache = f))
+    .catch((e) => { console.warn(e); return { produtos: {}, partes: {} }; }).finally(() => { fichaP = null; }));
+}
 
 async function editorRnc(el) {
   const E = S.edit, r = E.rec, P = S.cfg.parametros;
-  const FT = await ficha();
+  // não espera a ficha técnica: abre o formulário já e redesenha a aba Custos quando ela chegar
+  const semFicha = !fichaCache;
+  if (semFicha) ficha().then(() => { if (fichaCache && S.edit === E && secsAtual(E) === "2") editorRnc(el); });
+  const FT = fichaCache || { produtos: {}, partes: {} };
   const novo = !r.id, fin = FINAIS.includes(r.status), trat = r.status !== APONTADO;
   const dis = fin && !admin();
   const secs = trat ? ["1 · Registro", "2 · Custos", "3 · Tratativa", "4 · Evidências"] : ["1 · Registro", "2 · Custos", "4 · Evidências"];
@@ -358,7 +377,7 @@ async function editorRnc(el) {
   let h = `<div class="btnrow"><button class="btn" id="e-volta">← Voltar</button></div>` + heading(tit, novo ? "Preencha os campos com *. Salve as alterações antes de sair." : `Etapa: ${r.status}`) +
     (dis ? alerta("info", "Registro encerrado — somente o administrador pode alterar.") : "") +
     `<div class="tabs">${secs.map((s, i) => `<button data-a="${i}" class="${i === E.aba ? "on" : ""}">${s}</button>`).join("")}</div>`;
-  const sec = secs[E.aba];
+  const sec = secs[E.aba]; E._sec = sec[0];
   const o = { dis };
   if (sec.startsWith("1")) {
     h += card(row("c4 keep2", idate("data", "Data *", r.data, o), isel("setor_origem", "Setor de origem (gerador) *", setUser(), r.setor_origem, { ...o, ph: "Selecione…" }),
@@ -370,6 +389,7 @@ async function editorRnc(el) {
         isel("reincidente", "Reincidente?", ["Não", "Sim"], r.reincidente, o)), "Identificação") +
       card(itxt("descricao", "Descrição do problema (o que, onde, quando, quanto) *", r.descricao, o), "Descrição");
   } else if (sec.startsWith("2")) {
+    if (semFicha) h += alerta("info", "⏳ Carregando ficha técnica… os produtos aparecem em instantes.");
     const prods = Object.values(FT.produtos).map((p) => [p.codigo, `${p.codigo} — ${p.nome}`]);
     let ft = "";
     if (prods.length) {

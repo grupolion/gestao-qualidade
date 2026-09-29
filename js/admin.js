@@ -1,6 +1,6 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260929c";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260929c";
+import * as db from "./db.js?v=20260929d";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260929d";
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Peças", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
@@ -180,8 +180,8 @@ function fichaTec(box) {
         }
         return { codigo: cod, nome: g[0].Prod_Referencia || cod, valor: pr ? n(pr.Valor_Total_Componente) : 0, familia: g[0].Nome_Familia || "", grupo: g[0].Nome_Grupo || "", partes };
       });
-      await db.importarFicha(lista); await db.carregarFicha(true);
-      msg.innerHTML = alerta("ok", `${lista.length} produto(s) importados. Recarregue a página para usar a nova ficha.`);
+      await db.importarFicha(lista); await db.carregarFicha(true); await db.salvarConfig("ficha_versao", Date.now());
+      msg.innerHTML = alerta("ok", `${lista.length} produto(s) importados. Todos os usuários conectados serão avisados para recarregar a página.`);
     } catch (err) { msg.innerHTML = alerta("error", esc(err.message)); }
   };
 }

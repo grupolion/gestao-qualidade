@@ -1,7 +1,7 @@
 // Camada de dados (Supabase) — equivalente ao storage.py do app Streamlit.
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import * as K from "./cripto.js?v=20260929c";
-import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20260929c";
+import * as K from "./cripto.js?v=20260929d";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20260929d";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, storageKey: "gq-sessao",
@@ -123,6 +123,11 @@ export async function salvarConfig(chave, valor) {
 // ---------- ficha técnica ----------
 let _ficha = null;
 export function limparCache() { _ficha = null; }
+// versão da ficha técnica (marcada pelo admin ao importar) — usada para avisar os usuários
+export async function fichaVersao() {
+  const { data } = await sb.from("config").select("valor").eq("chave", "ficha_versao").maybeSingle();
+  return data?.valor ?? null;
+}
 export async function carregarFicha(forcar = false) {
   if (_ficha && !forcar) return _ficha;
   const rows = []; let de = 0;
@@ -131,11 +136,14 @@ export async function carregarFicha(forcar = false) {
     rows.push(...lote); if (lote.length < 1000) break; de += 1000;
   }
   const produtos = {}, partes = {};
-  for (let r of rows) {
-    if (K.cifrado(r.partes?._c)) {
-      if (!_dek) continue;
-      try { r = { ...r, ...(await K.decifrar(_dek, r.partes._c)) }; } catch { continue; }
-    }
+  // decifra todas as linhas em paralelo (antes era uma por vez)
+  const lista = await Promise.all(rows.map(async (r) => {
+    if (!K.cifrado(r.partes?._c)) return r;
+    if (!_dek) return null;
+    try { return { ...r, ...(await K.decifrar(_dek, r.partes._c)) }; } catch { return null; }
+  }));
+  for (const r of lista) {
+    if (!r) continue;
     produtos[r.codigo] = { codigo: r.codigo, nome: r.nome, valor: +r.valor || 0, familia: r.familia, grupo: r.grupo };
     partes[r.codigo] = r.partes || {};
   }
