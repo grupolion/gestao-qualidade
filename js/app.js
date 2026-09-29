@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260929h";
+import * as db from "./db.js?v=20260929i";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929h";
-import { paginaAdmin } from "./admin.js?v=20260929h";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929i";
+import { paginaAdmin } from "./admin.js?v=20260929i";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -237,7 +237,10 @@ function painel(el, f) {
     for (let d = ini; d <= fim && dias.length < 800; d = addDias(d, 1)) dias.push(d);
     if (dias.length) PER = dias;
   }
-  const lblPer = PER.map((p) => visao === "d" ? p.slice(8, 10) + "/" + p.slice(5, 7) : p.split("-").reverse().join("/"));
+  PER.sort(); // ordem cronológica (ISO AAAA-MM-DD)
+  const variosAnos = new Set(PER.map((p) => p.slice(0, 4))).size > 1;
+  const lblPer = PER.map((p) => visao === "d" ? p.slice(8, 10) + "/" + p.slice(5, 7) + (variosAnos ? "/" + p.slice(2, 4) : "")
+    : p.split("-").reverse().join("/"));
   const serie = (fn, arr = R) => PER.map((p) => arr.filter((r) => per(r) === p).reduce((s, r) => s + fn(r), 0));
   const CORES = [BRAND, "#1f2a44", "#e8a33d", "#3a8f5c", "#7b5ea7", "#c0504d", "#2e86ab", "#8c8c8c", "#b5651d", "#5d9b9b"];
   const temporal = (titulo, datasets, fmt, empilhado) => grafico(bloco(titulo, true), { type: "bar", legend: datasets.length > 1,
