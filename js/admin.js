@@ -1,8 +1,8 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260929f";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260929f";
+import * as db from "./db.js?v=20260929g";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260929g";
 
-const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Peças", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
+const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
 
 export function paginaAdmin(el, ctx) {
@@ -11,7 +11,7 @@ export function paginaAdmin(el, ctx) {
   $$("[data-t]", el).forEach((b) => (b.onclick = () => { aba = +b.dataset.t; paginaAdmin(el, ctx); }));
   const box = $("#ad");
   const again = async () => { await ctx.recarregarCfg(); paginaAdmin(el, ctx); };
-  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), (b, c, a) => cadastro(b, c, a, "pecas"), fichaTec, seguranca, dados][aba](box, ctx, again);
+  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), fichaTec, seguranca, dados][aba](box, ctx, again);
 }
 const salvarCfg = async (k, v, again, msg = "Salvo.") => {
   try { await db.salvarConfig(k, v); toast(msg); await again(); } catch (e) { toast("Erro: " + e.message); }
