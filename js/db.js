@@ -4,7 +4,9 @@ import * as K from "./cripto.js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: true, storageKey: "gq-sessao" } });
+  auth: { persistSession: true, storageKey: "gq-sessao",
+    // evita travamento do lock de sessão (requisições só voltavam ao trocar de aba)
+    lock: async (_n, _t, fn) => await fn() } });
 
 export class ConflictError extends Error {}
 const email = (login) => `${login.trim().toLowerCase()}@${EMAIL_DOMINIO}`;
@@ -166,7 +168,7 @@ const agora = () => new Date().toISOString().slice(0, 19);
 
 // Salva com histórico e controle de versão otimista (igual storage.save_record)
 export async function salvar(col, rec, user) {
-  rec = structuredClone(rec);
+  rec = JSON.parse(JSON.stringify(rec));
   const hist = rec.historico || [];
   delete rec.historico;
   if (!rec.id) {

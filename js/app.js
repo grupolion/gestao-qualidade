@@ -86,12 +86,15 @@ function navegar(p, extra) {
   $$("[data-nav]").forEach((b) => b.classList.toggle("on", b.dataset.nav === p));
   render(); window.scrollTo(0, 0);
 }
-function guardarRascunho() { if (S.edit?.rec) S.draft = { tipo: S.edit.tipo, rec: structuredClone(S.edit.rec), pagina: S.pagina }; }
+function guardarRascunho() { if (S.edit?.rec) S.draft = { tipo: S.edit.tipo, rec: JSON.parse(JSON.stringify(S.edit.rec)), pagina: S.pagina }; }
 function render() {
   const pg = $("#page"); if (!pg) return;
   try {
-    if (S.edit?.tipo === "rnc") return editorRnc(pg);
-    if (S.edit?.tipo === "acao") return editorAcao(pg);
+    const ed = S.edit?.tipo === "rnc" ? editorRnc : S.edit?.tipo === "acao" ? editorAcao : null;
+    if (ed) {
+      if (ed === editorRnc && !fichaCache) pg.innerHTML = `<div class="loading">Abrindo formulário…</div>`;
+      return Promise.resolve(ed(pg)).catch((e) => { console.error(e); pg.innerHTML = alerta("error", esc(e.message)); });
+    }
     ({ [MENU[0]]: paginaGeral, [MENU[1]]: paginaRnc, [MENU[2]]: paginaKanban, [MENU[3]]: paginaAcoes,
        [ADMIN_MENU]: (el) => (admin() ? paginaAdmin(el, ctx) : (el.innerHTML = alerta("error", "Acesso restrito ao administrador."))) })[S.pagina](pg);
   } catch (e) { console.error(e); pg.innerHTML = alerta("error", esc(e.message)); }
@@ -133,6 +136,7 @@ async function iniciar() {
   S.cfg = await db.carregarConfig();
   await carregar();
   shell(); render();
+  setTimeout(() => ficha(), 1500); // pré-carrega a ficha técnica em segundo plano
   clearInterval(S.timer);
   S.timer = setInterval(async () => {
     if (S.edit || document.querySelector(".modal") || document.hidden || S.pagina === ADMIN_MENU) return;
@@ -462,7 +466,7 @@ async function editorRnc(el) {
     await db.excluirFoto(+b.dataset.fdel); E.fotos = await db.listarFotos(r.id); editorRnc(el); }));
   const msg = (t, m) => ($("#e-msg").innerHTML = alerta(t, esc(m)));
   const salvar = async (novoStatus) => {
-    const d = structuredClone(r);
+    const d = JSON.parse(JSON.stringify(r));
     if (novoStatus) d.status = novoStatus;
     if (!d.setor_origem || !String(d.descricao || "").trim()) return msg("error", "Informe o setor de origem e a descrição.");
     if (!admin() && !setUser().includes(d.setor_origem)) return msg("error", "Você não tem autorização para apontar neste setor.");
