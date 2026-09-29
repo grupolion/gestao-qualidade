@@ -2,7 +2,7 @@
 import * as db from "./db.js";
 import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js";
 
-const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Peças", "Ficha técnica"];
+const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Peças", "Ficha técnica", "🔒 Segurança"];
 let aba = 0;
 
 export function paginaAdmin(el, ctx) {
@@ -11,7 +11,7 @@ export function paginaAdmin(el, ctx) {
   $$("[data-t]", el).forEach((b) => (b.onclick = () => { aba = +b.dataset.t; paginaAdmin(el, ctx); }));
   const box = $("#ad");
   const again = async () => { await ctx.recarregarCfg(); paginaAdmin(el, ctx); };
-  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), (b, c, a) => cadastro(b, c, a, "pecas"), fichaTec][aba](box, ctx, again);
+  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), (b, c, a) => cadastro(b, c, a, "pecas"), fichaTec, seguranca][aba](box, ctx, again);
 }
 const salvarCfg = async (k, v, again, msg = "Salvo.") => {
   try { await db.salvarConfig(k, v); toast(msg); await again(); } catch (e) { toast("Erro: " + e.message); }
@@ -180,3 +180,34 @@ function fichaTec(box) {
   };
 }
 void brl;
+
+// ---------- Segurança: chave mestra ----------
+async function seguranca(box) {
+  const ativa = db.criptoAtiva();
+  if (!ativa) {
+    box.innerHTML = card(`<div class="alert info">Custos e ficha técnica estão <b>sem criptografia</b>. Ao ativar, eles passam a ser gravados cifrados (AES-256) no Supabase.
+      Só quem tem login liberado consegue ler. <b>Guarde a chave mestra fora do sistema</b>: sem ela e sem nenhuma senha de administrador válida, os dados não podem ser recuperados.</div>` +
+      row("c2", inp("m1", "Chave mestra (mín. 12 caracteres)", "", { type: "password", id2: "f-m1" }) + inp("m2", "Repita a chave mestra", "", { type: "password", id2: "f-m2" })) +
+      inp("sa", "Sua senha de administrador", "", { type: "password", id2: "f-sa" }) +
+      `<div class="btnrow"><button class="btn primary" id="ativar">🔒 Ativar criptografia</button></div><div id="prog" class="caption"></div>`);
+    $("#ativar").onclick = async () => {
+      const m1 = $("#f-m1").value, m2 = $("#f-m2").value;
+      if (m1 !== m2) return toast("As chaves mestras não conferem.");
+      if (!(await confirmar("Ativar a criptografia agora? Não feche a página até terminar."))) return;
+      try { await db.ativarCriptografia(m1, $("#f-sa").value, (t) => ($("#prog").textContent = t)); toast("Criptografia ativada."); location.reload(); }
+      catch (e) { toast("Erro: " + e.message); }
+    };
+    return;
+  }
+  const sem = await db.usuariosSemChave();
+  box.innerHTML = card(`<div class="alert ok">🔒 Criptografia ativa. Custos e ficha técnica estão cifrados no Supabase.</div>` +
+    (sem.length ? `<div class="alert warn">Usuários ainda sem acesso aos dados (não conseguem entrar): <b>${sem.map((u) => esc(u.login)).join(", ")}</b>.
+      Para liberar, vá em <b>Usuários → Editar</b> e defina uma nova senha para cada um.</div>` : `<div class="caption">Todos os usuários têm acesso liberado.</div>`)) +
+    card(`<b>Recuperar acesso com a chave mestra</b><div class="caption">Use se a sua senha de admin foi redefinida e os custos pararam de aparecer.</div>` +
+      row("c2", inp("rm", "Chave mestra", "", { type: "password", id2: "f-rm" }) + inp("rs", "Sua senha atual", "", { type: "password", id2: "f-rs" })) +
+      `<div class="btnrow"><button class="btn" id="recup">Recuperar</button></div>`);
+  $("#recup").onclick = async () => {
+    try { await db.recuperarComMestra($("#f-rm").value, $("#f-rs").value); toast("Acesso recuperado."); location.reload(); }
+    catch (e) { toast("Erro: " + e.message); }
+  };
+}

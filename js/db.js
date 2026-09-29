@@ -1,5 +1,6 @@
 // Camada de dados (Supabase) — equivalente ao storage.py do app Streamlit.
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+import * as K from "./cripto.js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -9,20 +10,62 @@ export class ConflictError extends Error {}
 const email = (login) => `${login.trim().toLowerCase()}@${EMAIL_DOMINIO}`;
 const chk = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
+// ---------- criptografia (custos + ficha técnica) ----------
+let _dek = null, _ativa = false;
+const SENS = /^(custo|horas_|pecas_subst|valor)/;
+const CFG_SENS = ["setor_params", "maquinas", "pecas", "parametros"];
+export const criptoAtiva = () => _ativa;
+export const temChave = () => !!_dek;
+async function verAtiva() { _ativa = !!chk(await sb.rpc("cripto_ativa")); return _ativa; }
+async function cifrarDados(d) {
+  if (!_ativa) return d;
+  if (!_dek) throw new Error("Sem chave de criptografia nesta sessão. Saia e entre novamente.");
+  const o = {}, x = {};
+  for (const [k, v] of Object.entries(d)) (SENS.test(k) ? x : o)[k] = v;
+  if (Object.keys(x).length) o._c = await K.cifrar(_dek, x);
+  return o;
+}
+async function decifrarDados(d) {
+  if (!d || !K.cifrado(d._c)) return d;
+  const { _c, ...o } = d;
+  if (!_dek) return o; // sem chave: custos simplesmente não aparecem
+  try { return { ...o, ...(await K.decifrar(_dek, _c)) }; } catch { return o; }
+}
+async function carregarChave(user, senha) {
+  _dek = null;
+  if (!(await verAtiva())) return;
+  if (senha) {
+    const reg = chk(await sb.from("chaves_usuario").select("*").eq("user_id", user.id).maybeSingle());
+    if (reg) { _dek = await K.desembrulhar(reg, senha); await K.guardarLocal(user.id, _dek); }
+  } else _dek = await K.lerLocal(user.id);
+}
+async function embrulharPara(uid, senha) {
+  if (!_dek) return;
+  chk(await sb.from("chaves_usuario").upsert({ user_id: uid, ...(await K.embrulhar(_dek, senha)), atualizado_em: new Date().toISOString() }));
+}
+
 // ---------- autenticação ----------
 export async function entrar(login, senha, manter) {
   localStorage.setItem("gq-manter", manter ? "1" : "0");
   sessionStorage.setItem("gq-viva", "1");
   const { error } = await sb.auth.signInWithPassword({ email: email(login), password: senha });
   if (error) throw new Error("Login ou senha inválidos.");
-  return meuPerfil();
+  const p = await meuPerfil();
+  const { data: { user } } = await sb.auth.getUser();
+  await carregarChave(user, senha);
+  if (_ativa && !_dek) { await sb.auth.signOut(); throw new Error("Seu acesso ainda não foi liberado. Peça ao administrador para redefinir sua senha."); }
+  return p;
 }
-export async function sair() { await sb.auth.signOut(); }
+export async function sair() { _dek = null; await K.limparLocal(); await sb.auth.signOut(); }
 export async function sessaoAtual() {
   // "Manter conectado" desmarcado → sessão só vale enquanto a aba/navegador estiver aberto
   if (localStorage.getItem("gq-manter") === "0" && !sessionStorage.getItem("gq-viva")) { await sb.auth.signOut(); return null; }
   const { data } = await sb.auth.getSession();
-  return data.session ? meuPerfil() : null;
+  if (!data.session) return null;
+  const p = await meuPerfil();
+  await carregarChave(data.session.user, null);
+  if (_ativa && !_dek) { await sb.auth.signOut(); return null; } // força novo login para liberar a chave
+  return p;
 }
 async function meuPerfil() {
   const { data: { user } } = await sb.auth.getUser();
@@ -35,6 +78,8 @@ export async function trocarSenha(atual, nova, login) {
   const { error } = await sb.auth.signInWithPassword({ email: email(login), password: atual });
   if (error) throw new Error("Senha atual incorreta.");
   chk(await sb.auth.updateUser({ password: nova }));
+  const { data: { user } } = await sb.auth.getUser();
+  await embrulharPara(user.id, nova);
 }
 
 // ---------- usuários (admin) ----------
@@ -47,20 +92,31 @@ export async function criarUsuario({ login, nome, senha, perfil, setores }) {
   if (!data.user?.id) throw new Error("Desative 'Confirm email' em Supabase → Authentication → Sign In / Providers → Email.");
   // o gatilho novo_usuario cria o perfil inativo; o admin completa e ativa
   await salvarPerfil(data.user.id, { nome, perfil, setores, ativo: true });
+  await embrulharPara(data.user.id, senha);
 }
 export async function salvarPerfil(id, campos) { chk(await sb.from("perfis").update(campos).eq("id", id)); }
-export async function definirSenha(id, senha) { chk(await sb.rpc("admin_definir_senha", { uid: id, senha })); }
+export async function definirSenha(id, senha) { chk(await sb.rpc("admin_definir_senha", { uid: id, senha })); await embrulharPara(id, senha); }
 export async function excluirUsuario(id) { chk(await sb.rpc("admin_excluir_usuario", { uid: id })); }
 
 // ---------- configuração ----------
 export async function carregarConfig() {
   const rows = chk(await sb.from("config").select("chave,valor"));
   const cfg = { setores: [], setor_params: {}, parametros: {}, colaboradores: [], centros_custo: [], maquinas: [], pecas: [], defeitos: {} };
-  for (const r of rows) cfg[r.chave] = r.valor;
+  for (const r of rows) {
+    let v = r.valor;
+    if (K.cifrado(v?._c)) { try { v = _dek ? await K.decifrar(_dek, v._c) : undefined; } catch { v = undefined; } }
+    if (v !== undefined) cfg[r.chave] = v;
+  }
   cfg.parametros = { custo_hora_padrao: 60, refresh_segundos: 30, ...cfg.parametros };
   return cfg;
 }
-export async function salvarConfig(chave, valor) { chk(await sb.from("config").upsert({ chave, valor })); }
+export async function salvarConfig(chave, valor) {
+  if (_ativa && CFG_SENS.includes(chave)) {
+    if (!_dek) throw new Error("Sem chave de criptografia nesta sessão.");
+    valor = { _c: await K.cifrar(_dek, valor) };
+  }
+  chk(await sb.from("config").upsert({ chave, valor }));
+}
 
 // ---------- ficha técnica ----------
 let _ficha = null;
@@ -72,13 +128,24 @@ export async function carregarFicha(forcar = false) {
     rows.push(...lote); if (lote.length < 1000) break; de += 1000;
   }
   const produtos = {}, partes = {};
-  for (const r of rows) {
+  for (let r of rows) {
+    if (K.cifrado(r.partes?._c)) {
+      if (!_dek) continue;
+      try { r = { ...r, ...(await K.decifrar(_dek, r.partes._c)) }; } catch { continue; }
+    }
     produtos[r.codigo] = { codigo: r.codigo, nome: r.nome, valor: +r.valor || 0, familia: r.familia, grupo: r.grupo };
     partes[r.codigo] = r.partes || {};
   }
   return (_ficha = { produtos, partes });
 }
+async function cifrarFicha(r) {
+  if (!_ativa) return r;
+  if (!_dek) throw new Error("Sem chave de criptografia nesta sessão.");
+  const { codigo, ...resto } = r;
+  return { codigo, nome: "", valor: null, familia: null, grupo: null, partes: { _c: await K.cifrar(_dek, resto) } };
+}
 export async function importarFicha(lista) {
+  lista = await Promise.all(lista.map(cifrarFicha));
   for (let i = 0; i < lista.length; i += 50) chk(await sb.from("ficha_produtos").upsert(lista.slice(i, i + 50)));
 }
 
@@ -87,13 +154,13 @@ export async function listar(col) {
   const out = []; let de = 0;
   for (;;) {
     const lote = chk(await sb.from(col).select("id,dados,versao").order("id").range(de, de + 999));
-    out.push(...lote.map((r) => ({ ...r.dados, id: r.id, versao: r.versao }))); if (lote.length < 1000) break; de += 1000;
+    for (const r of lote) out.push({ ...(await decifrarDados(r.dados)), id: r.id, versao: r.versao }); if (lote.length < 1000) break; de += 1000;
   }
   return out;
 }
 export async function obter(col, id) {
   const r = chk(await sb.from(col).select("id,dados,versao").eq("id", id).maybeSingle());
-  return r ? { ...r.dados, id: r.id, versao: r.versao } : null;
+  return r ? { ...(await decifrarDados(r.dados)), id: r.id, versao: r.versao } : null;
 }
 const agora = () => new Date().toISOString().slice(0, 19);
 
@@ -107,7 +174,7 @@ export async function salvar(col, rec, user) {
     rec.criado_em = agora(); rec.criado_por = user;
     const dados = { ...rec, historico: [{ em: agora(), por: user, acao: "criado" }] };
     delete dados.versao;
-    chk(await sb.from(col).insert({ id: rec.id, dados, versao: 1 }));
+    chk(await sb.from(col).insert({ id: rec.id, dados: await cifrarDados(dados), versao: 1 }));
     return { ...dados, versao: 1 };
   }
   const velho = await obter(col, rec.id);
@@ -122,7 +189,7 @@ export async function salvar(col, rec, user) {
   const nv = velho.versao + 1;
   const dados = { ...rec, historico: h, alterado_em: agora(), alterado_por: user };
   delete dados.versao;
-  const r = chk(await sb.from(col).update({ dados, versao: nv, atualizado_em: new Date().toISOString() })
+  const r = chk(await sb.from(col).update({ dados: await cifrarDados(dados), versao: nv, atualizado_em: new Date().toISOString() })
     .eq("id", rec.id).eq("versao", velho.versao).select("id"));
   if (!r.length) throw new ConflictError("Registro alterado por outro usuário. Recarregue antes de salvar.");
   return { ...dados, id: rec.id, versao: nv };
@@ -131,7 +198,7 @@ export async function excluir(col, id, user) {
   const rec = await obter(col, id);
   if (!rec) return;
   const fotos = col === "rnc" ? chk(await sb.from("fotos").select("nome,conteudo").eq("rnc_id", id)) : null;
-  chk(await sb.from("lixeira").insert({ colecao: col, registro_id: id, dados: rec, fotos, excluido_por: user }));
+  chk(await sb.from("lixeira").insert({ colecao: col, registro_id: id, dados: await cifrarDados(rec), fotos, excluido_por: user }));
   chk(await sb.from(col).delete().eq("id", id));
 }
 
@@ -153,4 +220,47 @@ function reduzirImagem(file, max = 1600) {
     };
     img.onerror = () => erro(new Error(`Formato não suportado: ${file.name}`)); img.src = u;
   });
+}
+
+// ---------- administração da chave mestra ----------
+// Ativa: gera a chave de dados, protege com a chave mestra e com a senha do admin, e cifra o que já existe.
+export async function ativarCriptografia(mestra, senhaAdmin, progresso = () => {}) {
+  if (await verAtiva()) throw new Error("A criptografia já está ativa.");
+  if (!mestra || mestra.length < 12) throw new Error("A chave mestra precisa de pelo menos 12 caracteres.");
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.auth.signInWithPassword({ email: user.email, password: senhaAdmin });
+  if (error) throw new Error("Senha do administrador incorreta.");
+  progresso("Lendo dados atuais...");
+  const cfg = await carregarConfig(), ficha = await carregarFicha(true);
+  const regs = {}; for (const c of ["rnc", "acoes"]) regs[c] = await listar(c);
+  _dek = await K.gerarDEK();
+  chk(await sb.from("chaves").insert({ id: "mestra", ...(await K.embrulhar(_dek, mestra)) }));
+  _ativa = true;
+  await embrulharPara(user.id, senhaAdmin);
+  await K.guardarLocal(user.id, _dek);
+  progresso("Cifrando configurações...");
+  for (const k of CFG_SENS) await salvarConfig(k, cfg[k]);
+  for (const c of ["rnc", "acoes"]) {
+    progresso(`Cifrando ${c}...`);
+    for (const r of regs[c]) { const { id, versao, ...d } = r; chk(await sb.from(c).update({ dados: await cifrarDados(d) }).eq("id", id)); }
+  }
+  progresso("Cifrando ficha técnica...");
+  const lista = Object.values(ficha.produtos).map((p) => ({ ...p, partes: ficha.partes[p.codigo] || {} }));
+  await importarFicha(lista); _ficha = null;
+  progresso("Concluído.");
+}
+// Recupera o acesso do admin com a chave mestra (ex.: a senha foi redefinida)
+export async function recuperarComMestra(mestra, senhaAtual) {
+  const reg = chk(await sb.from("chaves").select("*").eq("id", "mestra").maybeSingle());
+  if (!reg) throw new Error("A criptografia não está ativa.");
+  _dek = await K.desembrulhar(reg, mestra);
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.auth.signInWithPassword({ email: user.email, password: senhaAtual });
+  if (error) { _dek = null; throw new Error("Senha atual incorreta."); }
+  await embrulharPara(user.id, senhaAtual); await K.guardarLocal(user.id, _dek);
+}
+export async function usuariosSemChave() {
+  if (!_ativa) return [];
+  const com = new Set(chk(await sb.from("chaves_usuario").select("user_id")).map((r) => r.user_id));
+  return (await listarPerfis()).filter((p) => !com.has(p.id));
 }
