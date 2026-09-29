@@ -1,0 +1,545 @@
+// Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
+import * as db from "./db.js";
+import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js";
+import { paginaAdmin } from "./admin.js";
+
+// ---------------- constantes ----------------
+export const APONTADO = "Apontado";
+export const PDCA = ["P · Planejar", "D · Executar", "C · Verificar", "A · Padronizar"];
+export const FINAIS = ["Finalizada", "Cancelada"];
+export const RNC_STATUS = [APONTADO, ...PDCA, ...FINAIS];
+const LEGADO = { "Aberta": PDCA[0], "Em análise": PDCA[0], "Aguardando ações": PDCA[1], "Em andamento": PDCA[1],
+  "Verificação de eficácia": PDCA[2], "Fechada": "Finalizada", "Encerrada": "Finalizada" };
+export const ACAO_STATUS = ["Pendente", "Em andamento", "Concluída", "Cancelada"];
+const ORIGENS = ["Interna (processo)", "Fornecedor", "Cliente / Assistência técnica", "Auditoria", "Inspeção de recebimento"];
+const DISPOSICAO = ["Retrabalho", "Refugo / Sucata", "Uso condicional (concessão)", "Devolução ao fornecedor", "Reclassificação", "Em avaliação"];
+const GRAVIDADE = ["Baixa", "Média", "Alta", "Crítica"];
+const TIPO_ACAO = ["Contenção", "Corretiva", "Preventiva", "Melhoria"];
+const TURNOS = ["1º", "2º", "3º", "Comercial"];
+const M6 = [["metodo", "Método"], ["maquina", "Máquina"], ["material", "Material"], ["mao_obra", "Mão de obra"], ["meio_ambiente", "Meio ambiente"], ["medicao", "Medição"]];
+const BRAND = "#d4501e";
+const MENU = ["📊 Visão geral", "📝 Não conformidades", "🗂️ Tratativas PDCA", "✅ Plano de ações"];
+const ADMIN_MENU = "⚙️ Administração";
+const LOGO = "assets/logo-lion-fitness.png";
+
+// ---------------- estado ----------------
+const S = { user: null, cfg: null, perfis: [], rnc: [], acoes: [], pagina: MENU[0], edit: null, draft: null, filtros: {}, timer: null };
+window.GQ = S;
+const admin = () => S.user?.perfil === "admin";
+export const SETORES = () => Object.keys(S.cfg?.setores || {});
+const setUser = () => (admin() ? SETORES() : SETORES().filter((s) => (S.user.setores || []).includes(s)));
+export const nome = (login) => S.perfis.find((p) => p.login === login)?.nome || login || "";
+const pessoas = () => S.perfis.filter((p) => p.ativo).map((p) => [p.login, `${p.nome} (${p.login})`]);
+const statusDe = (r) => LEGADO[r.status] || r.status || APONTADO;
+export function custo(r) { return num(r.horas_homem) * num(r.custo_hora) + num(r.horas_maquina) * num(r.custo_hora_maquina) + num(r.custo_material); }
+const atrasada = (a) => !!a.quando && !["Concluída", "Cancelada"].includes(a.status) && a.quando.slice(0, 10) < hoje();
+const visivel = (r) => admin() || (S.user.setores || []).includes(r.setor_origem);
+const rncLbl = (r) => `${r.id} · ${r.setor_origem || ""} · ${r.tipo_nc || (r.descricao || "").slice(0, 40)}`;
+
+async function carregar() {
+  const [rnc, acoes, perfis] = await Promise.all([db.listar("rnc"), db.listar("acoes"), db.listarPerfis()]);
+  S.perfis = perfis;
+  S.rnc = rnc.map((r) => ({ ...r, status: statusDe(r) })).filter(visivel)
+    .sort((a, b) => String(b.data || "").localeCompare(String(a.data || "")) || b.id.localeCompare(a.id));
+  const ids = new Set(S.rnc.map((r) => r.id));
+  S.acoes = acoes.filter((a) => admin() || (a.rnc_id ? ids.has(a.rnc_id) : (S.user.setores || []).includes(a.onde)));
+}
+
+// ---------------- shell / navegação ----------------
+const app = () => $("#app");
+function shell() {
+  const menu = admin() ? [...MENU, ADMIN_MENU] : MENU;
+  app().innerHTML = `<div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><img src="${LOGO}" alt="Lion Fitness"></div>
+      <div class="caption">GESTÃO DA QUALIDADE</div><hr>
+      <nav class="nav">${menu.map((m) => `<button data-nav="${esc(m)}" class="${m === S.pagina ? "on" : ""}">${esc(m)}</button>`).join("")}</nav><hr>
+      <div><b>${esc(S.user.nome)}</b><div class="caption">${esc(S.user.login)} · ${admin() ? "Administrador" : "Usuário"}</div></div>
+      <button class="btn block" id="bt-senha">🔑 Trocar senha</button>
+      <button class="btn block" id="bt-sair">Sair</button>
+      <div class="caption">Dados atualizados automaticamente.</div>
+    </aside><div class="backdrop"></div>
+    <div class="main"><div class="topbar"><button id="bt-menu" aria-label="Menu">☰</button><img src="${LOGO}" alt=""><span>Gestão da Qualidade</span></div>
+      <div class="container" id="page"></div></div></div>`;
+  const sh = $(".shell");
+  $("#bt-menu").onclick = () => sh.classList.add("menu");
+  $(".backdrop").onclick = () => sh.classList.remove("menu");
+  $$("[data-nav]").forEach((b) => (b.onclick = () => { sh.classList.remove("menu"); navegar(b.dataset.nav); }));
+  $("#bt-sair").onclick = async () => { await db.sair(); location.reload(); };
+  $("#bt-senha").onclick = trocarSenha;
+}
+function navegar(p, extra) {
+  if (S.edit && S.pagina !== p) guardarRascunho();
+  S.pagina = p; S.edit = extra || null;
+  $$("[data-nav]").forEach((b) => b.classList.toggle("on", b.dataset.nav === p));
+  render(); window.scrollTo(0, 0);
+}
+function guardarRascunho() { if (S.edit?.rec) S.draft = { tipo: S.edit.tipo, rec: structuredClone(S.edit.rec), pagina: S.pagina }; }
+function render() {
+  const pg = $("#page"); if (!pg) return;
+  try {
+    if (S.edit?.tipo === "rnc") return editorRnc(pg);
+    if (S.edit?.tipo === "acao") return editorAcao(pg);
+    ({ [MENU[0]]: paginaGeral, [MENU[1]]: paginaRnc, [MENU[2]]: paginaKanban, [MENU[3]]: paginaAcoes,
+       [ADMIN_MENU]: (el) => (admin() ? paginaAdmin(el, ctx) : (el.innerHTML = alerta("error", "Acesso restrito ao administrador."))) })[S.pagina](pg);
+  } catch (e) { console.error(e); pg.innerHTML = alerta("error", esc(e.message)); }
+}
+function trocarSenha() {
+  const m = modal(`<h3>Trocar senha</h3>${inp("a", "Senha atual", "", { type: "password" })}${inp("n", "Nova senha", "", { type: "password" })}
+    ${inp("r", "Repita a nova senha", "", { type: "password" })}<div class="btnrow" style="margin-top:1rem"><button class="btn primary">Salvar</button></div><div class="msg"></div>`, { sm: true });
+  m.querySelector(".btn.primary").onclick = async () => {
+    const v = (k) => m.querySelector(`[data-k=${k}]`).value;
+    const msg = m.querySelector(".msg");
+    if (v("n").length < 4) return (msg.innerHTML = alerta("error", "A senha deve ter pelo menos 4 caracteres."));
+    if (v("n") !== v("r")) return (msg.innerHTML = alerta("error", "As senhas não conferem."));
+    try { await db.trocarSenha(v("a"), v("n"), S.user.login); m.fechar(); toast("Senha alterada."); }
+    catch (e) { msg.innerHTML = alerta("error", esc(e.message)); }
+  };
+}
+
+// contexto compartilhado com admin.js
+const ctx = { S, recarregarCfg: async () => { S.cfg = await db.carregarConfig(); S.perfis = await db.listarPerfis(); }, render };
+
+// ---------------- login ----------------
+function telaLogin(erro = "") {
+  app().innerHTML = `<div class="login"><div class="brand" style="margin:0 auto 1.5rem"><img src="${LOGO}" alt="Lion Fitness"></div>
+    ${heading("Gestão da Qualidade", "Entre com sua conta para registrar ocorrências e acompanhar ações.")}
+    <form class="card" id="flogin">${inp("login", "Login", "", { ph: "ex.: joao.silva" })}<div style="height:.6rem"></div>
+      ${inp("senha", "Senha", "", { type: "password" })}${ichk("manter", "Manter conectado neste dispositivo", true)}
+      <button class="btn primary block" type="submit">Entrar</button><div class="msg">${erro ? alerta("error", esc(erro)) : ""}</div></form>
+    <div class="caption" style="text-align:center">Esqueceu a senha? Peça ao administrador.</div></div>`;
+  $("#flogin").onsubmit = async (e) => {
+    e.preventDefault();
+    const v = (k) => $(`[data-k=${k}]`);
+    if (!v("login").value.trim() || !v("senha").value) return ($("#flogin .msg").innerHTML = alerta("error", "Informe login e senha."));
+    try { S.user = await db.entrar(v("login").value, v("senha").value, v("manter").checked); await iniciar(); }
+    catch (err) { $("#flogin .msg").innerHTML = alerta("error", esc(err.message)); }
+  };
+}
+async function iniciar() {
+  app().innerHTML = `<div class="loading">Carregando dados…</div>`;
+  S.cfg = await db.carregarConfig();
+  await carregar();
+  shell(); render();
+  clearInterval(S.timer);
+  S.timer = setInterval(async () => {
+    if (S.edit || document.querySelector(".modal") || document.hidden || S.pagina === ADMIN_MENU) return;
+    try { await carregar(); render(); } catch {}
+  }, Math.max(10, num(S.cfg.parametros.refresh_segundos) || 30) * 1000);
+}
+
+// ---------------- Visão geral ----------------
+function filtroPeriodo(el, chave) {
+  const f = (S.filtros[chave] ||= { de: addDias(hoje(), -365), ate: hoje(), setor: "" });
+  return { f, html: row("c3", idate("de", "Data inicial", f.de), idate("ate", "Data final", f.ate),
+    isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" })) };
+}
+function ligarFiltros(el, f, cb) {
+  $$("[data-k]", el).forEach((i) => (i.onchange = () => { f[i.dataset.k] = i.type === "checkbox" ? i.checked : i.value; cb(); }));
+}
+function paginaGeral(el) {
+  const { f, html } = filtroPeriodo(el, "painel");
+  const aba = S.filtros.painelAba || 0;
+  el.innerHTML = heading("Visão geral", "Acompanhe os resultados da qualidade e identifique o que precisa de atenção.") +
+    `<div class="btnrow"><button class="btn primary" id="g-nova" ${setUser().length ? "" : "disabled"}>+ Registrar não conformidade</button>
+     <button class="btn" id="g-trat">Ver tratativas</button><button class="btn" id="g-acoes">Ver plano de ações</button></div>` +
+    card(html) + `<div class="tabs"><button class="${aba ? "" : "on"}" data-t="0">Resultados e indicadores</button><button class="${aba ? "on" : ""}" data-t="1">Metas por setor</button></div><div id="g-body"></div>`;
+  $("#g-nova").onclick = () => novaRnc(); $("#g-trat").onclick = () => navegar(MENU[2]); $("#g-acoes").onclick = () => navegar(MENU[3]);
+  $$(".tabs button", el).forEach((b) => (b.onclick = () => { S.filtros.painelAba = +b.dataset.t; paginaGeral(el); }));
+  ligarFiltros($(".card", el), f, () => paginaGeral(el));
+  if (f.de > f.ate) return ($("#g-body").innerHTML = alerta("warn", "A data inicial deve ser anterior ou igual à data final."));
+  (aba ? painelMetas : painel)($("#g-body"), f);
+}
+const noPeriodo = (f) => S.rnc.filter((r) => (!f.setor || r.setor_origem === f.setor) && String(r.data || "").slice(0, 10) >= f.de && String(r.data || "").slice(0, 10) <= f.ate);
+const charts = [];
+function grafico(canvas, cfg) { charts.push(new Chart(canvas, { ...cfg, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: !!cfg.legend } }, ...cfg.options } })); }
+function painel(el, f) {
+  charts.splice(0).forEach((c) => c.destroy());
+  const R = noPeriodo(f); const ids = new Set(R.map((r) => r.id));
+  const A = S.acoes.filter((a) => ids.has(a.rnc_id));
+  const verif = R.filter((r) => ["Sim", "Não"].includes(r.eficaz));
+  const k = [metric("RNCs no período", R.length), metric("Tratativas em aberto", R.filter((r) => PDCA.includes(r.status)).length),
+    metric("Peças não conformes", R.reduce((s, r) => s + num(r.qtd_nc), 0).toLocaleString("pt-BR")), metric("Custo da não qualidade", brl(R.reduce((s, r) => s + custo(r), 0)))];
+  const k2 = [metric("Reincidências", R.filter((r) => r.reincidente === "Sim").length), metric("Ações pendentes", A.filter((a) => ["Pendente", "Em andamento"].includes(a.status)).length),
+    metric("Ações atrasadas", A.filter(atrasada).length), metric("Eficácia das ações", verif.length ? Math.round(100 * verif.filter((r) => r.eficaz === "Sim").length / verif.length) + "%" : "—")];
+  const aba = S.filtros.painelSub || 0;
+  const abas = ["Ocorrências e causas", "Evolução e custos", "Situação e atrasos"];
+  el.innerHTML = `<div class="metrics">${k.join("")}</div>` + exp("Outros indicadores", `<div class="metrics">${k2.join("")}</div>`) +
+    `<div class="tabs">${abas.map((t, i) => `<button class="${i === aba ? "on" : ""}" data-s="${i}">${t}</button>`).join("")}</div>` +
+    (R.length ? `<div class="row c2" id="g-ch"></div>` : alerta("info", "Sem dados no período.")) + `<div class="caption">Atualizado às ${hora()}</div>`;
+  $$("[data-s]", el).forEach((b) => (b.onclick = () => { S.filtros.painelSub = +b.dataset.s; painel(el, f); }));
+  if (!R.length) return;
+  const box = $("#g-ch");
+  const bloco = (t) => { const d = document.createElement("div"); d.className = "card"; d.innerHTML = `<div class="ttl">${t}</div><div class="chart"><canvas></canvas></div>`; box.append(d); return d.querySelector("canvas"); };
+  const conta = (arr, fk, fv = () => 1) => { const m = {}; arr.forEach((x) => { const kk = fk(x) || "—"; m[kk] = (m[kk] || 0) + fv(x); }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+  const barh = (cv, pares, lbl, fmt) => grafico(cv, { type: "bar", data: { labels: pares.map((p) => p[0]), datasets: [{ label: lbl, data: pares.map((p) => p[1]), backgroundColor: BRAND }] },
+    options: { indexAxis: "y", plugins: { legend: { display: false }, tooltip: fmt ? { callbacks: { label: (c) => fmt(c.raw) } } : {} } } });
+  if (aba === 0) {
+    barh(bloco("RNCs por setor de origem"), conta(R, (r) => r.setor_origem), "RNCs");
+    const p = conta(R, (r) => r.tipo_nc, (r) => num(r.qtd_nc)).slice(0, 12); const tot = p.reduce((s, x) => s + x[1], 0) || 1; let ac = 0;
+    grafico(bloco("Pareto de defeitos (peças NC)"), { type: "bar", legend: true, data: { labels: p.map((x) => x[0]), datasets: [
+      { label: "Peças", data: p.map((x) => x[1]), backgroundColor: BRAND, yAxisID: "y" },
+      { label: "% acumulado", type: "line", data: p.map((x) => ((ac += x[1]) / tot) * 100), borderColor: "#1f2a44", yAxisID: "y1" }] },
+      options: { plugins: { legend: { display: true } }, scales: { y1: { position: "right", min: 0, max: 100, grid: { display: false }, ticks: { callback: (v) => v + "%" } }, x: { ticks: { maxRotation: 35, minRotation: 35 } } } } });
+  } else if (aba === 1) {
+    const m = {}; R.forEach((r) => { const mm = String(r.data).slice(0, 7); (m[mm] ||= [0, 0]); m[mm][0]++; m[mm][1] += custo(r); });
+    const ms = Object.keys(m).sort();
+    grafico(bloco("Evolução mensal"), { type: "bar", legend: true, data: { labels: ms.map((x) => x.split("-").reverse().join("/")), datasets: [
+      { label: "RNCs", data: ms.map((x) => m[x][0]), backgroundColor: BRAND, yAxisID: "y" },
+      { label: "Custo (R$)", type: "line", data: ms.map((x) => m[x][1]), borderColor: "#1f2a44", yAxisID: "y1" }] },
+      options: { plugins: { legend: { display: true } }, scales: { y1: { position: "right", grid: { display: false } } } } });
+    barh(bloco("Custo da não qualidade por setor (R$)"), conta(R, (r) => r.setor_origem, custo).filter((x) => x[1] > 0), "Custo", brl);
+  } else {
+    barh(bloco("Status das RNCs"), conta(R, (r) => r.status), "RNCs");
+    const at = S.acoes.filter((a) => atrasada(a) && (!a.rnc_id || ids.has(a.rnc_id))).sort((a, b) => a.quando.localeCompare(b.quando));
+    const d = document.createElement("div"); d.className = "card";
+    d.innerHTML = `<div class="ttl">Ações atrasadas</div>` + (at.length ? tabela([["id", "Ação"], ["rnc_id", "RNC"], ["o_que", "O que", "wrap"], ["quem", "Quem"], ["prazo", "Prazo"]],
+      at.map((a) => ({ ...a, quem: nome(a.quem), prazo: fdate(a.quando) })), { h: 300 }) : `<div class="caption">Nenhuma ação atrasada. 👍</div>`);
+    box.append(d);
+  }
+}
+function painelMetas(el, f) {
+  const sp = S.cfg.setor_params || {};
+  const lista = Object.keys(sp).filter((s) => setUser().includes(s) && (!f.setor || s === f.setor) && (sp[s].meta_rnc_mes != null || sp[s].meta_custo_mes != null)).sort();
+  if (!lista.length) return (el.innerHTML = alerta("info", "Nenhuma meta cadastrada para os setores selecionados."));
+  const [ai, mi] = f.de.split("-").map(Number), [af, mf] = f.ate.split("-").map(Number);
+  const meses = (af - ai) * 12 + mf - mi + 1;
+  const linhas = lista.map((s) => {
+    const R = S.rnc.filter((r) => r.setor_origem === s && String(r.data).slice(0, 10) >= f.de && String(r.data).slice(0, 10) <= f.ate);
+    const qtd = R.length, cst = R.reduce((a, r) => a + custo(r), 0);
+    const mr = sp[s].meta_rnc_mes != null ? num(sp[s].meta_rnc_mes) * meses : null, mc = sp[s].meta_custo_mes != null ? num(sp[s].meta_custo_mes) * meses : null;
+    const ok = (mr == null || qtd <= mr) && (mc == null || cst <= mc);
+    return { setor: s, rncs: qtd, meta_rnc: mr ?? "—", custo: cst, meta_custo: mc ?? "", sit: ok ? "🟢 Dentro da meta" : "🔴 Acima da meta" };
+  });
+  el.innerHTML = `<h4>Metas por setor — período de ${meses} ${meses === 1 ? "mês" : "meses"} (meta mensal × meses)</h4>` +
+    tabela([["setor", "Setor"], ["rncs", "RNCs", "num"], ["meta_rnc", "Meta RNCs", "num"], ["custo", "Custo NC (R$)", "brl"], ["meta_custo", "Meta custo (R$)", "brl"], ["sit", "Situação"]], linhas);
+}
+
+// ---------------- Não conformidades (lista) ----------------
+function paginaRnc(el) {
+  const f = (S.filtros.rnc ||= { setor: "", status: "", q: "" });
+  el.innerHTML = heading("Não conformidades", "Registre uma ocorrência e acompanhe sua resolução. Selecione uma linha para ver os detalhes.") +
+    (S.draft?.tipo === "rnc" ? alerta("warn", `Você tem um formulário em andamento${S.draft.rec.id ? ` (${S.draft.rec.id})` : ""}. <button class="btn sm" id="r-ret">Continuar preenchimento</button> <button class="btn sm" id="r-desc">Descartar</button>`) : "") +
+    `<div class="btnrow"><button class="btn primary" id="r-nova" ${setUser().length ? "" : "disabled"}>+ Registrar não conformidade</button></div>` +
+    (setUser().length ? "" : alerta("info", "Solicite ao administrador acesso a um setor para registrar ocorrências.")) +
+    card(row("c3", isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" }), isel("status", "Etapa", RNC_STATUS, f.status, { ph: "Todas as etapas" }),
+      inp("q", "Buscar ocorrência", f.q, { ph: "Número, descrição, peça ou OP" }))) + `<div id="r-tab"></div>`;
+  $("#r-nova").onclick = () => novaRnc();
+  if ($("#r-ret")) { $("#r-ret").onclick = retomar; $("#r-desc").onclick = () => { S.draft = null; paginaRnc(el); }; }
+  ligarFiltros($(".card", el), f, () => paginaRnc(el));
+  const q = f.q.trim().toLowerCase();
+  const L = S.rnc.filter((r) => (!f.setor || r.setor_origem === f.setor) && (!f.status || r.status === f.status) &&
+    (!q || [r.id, r.descricao, r.cod_peca, r.desc_peca, r.op, r.tipo_nc].some((x) => String(x || "").toLowerCase().includes(q))));
+  const rows = L.map((r) => { const A = S.acoes.filter((a) => a.rnc_id === r.id);
+    return { id: r.id, data: fdate(r.data), setor: r.setor_origem, tipo: r.tipo_nc, qtd: r.qtd_nc, status: r.status, resp: nome(r.responsavel),
+      acoes: A.length, atr: A.filter(atrasada).length, custo: custo(r) }; });
+  const cols = [["id", "Nº"], ["data", "Data"], ["setor", "Setor origem"], ["tipo", "Tipo de NC"], ["qtd", "Qtd NC", "num"], ["status", "Status"], ["resp", "Responsável"], ["acoes", "Ações", "num"], ["atr", "Atrasadas", "num"], ["custo", "Custo", "brl"]];
+  const box = $("#r-tab");
+  if (!rows.length) return (box.innerHTML = alerta("info", "Nenhuma ocorrência encontrada. Ajuste os filtros ou registre uma nova não conformidade."));
+  box.innerHTML = `<div class="caption">${rows.length} registro(s) · clique em uma linha para abrir · atualizado ${hora()}</div>` + tabela(cols, rows, { click: true }) +
+    `<div class="btnrow" style="margin-top:.8rem"><button class="btn" id="r-csv">⬇ Exportar CSV</button></div>`;
+  $$("tr[data-i]", box).forEach((t) => (t.onclick = () => abrirRnc(rows[+t.dataset.i].id)));
+  $("#r-csv").onclick = () => baixarCSV("rncs.csv", cols, rows);
+}
+function novaRnc() {
+  if (!setUser().length) return toast("Você não tem setor liberado.");
+  navegar(MENU[1], { tipo: "rnc", rec: { data: hoje(), emitente: S.user.login, status: APONTADO, reincidente: "Não", eficaz: "Pendente", setor_origem: setUser().length === 1 ? setUser()[0] : "", porques: ["", "", "", "", ""], ishikawa: {}, pecas_subst: [] }, volta: S.pagina });
+}
+async function abrirRnc(id, volta) {
+  const r = await db.obter("rnc", id);
+  if (!r) return toast("RNC não encontrada (pode ter sido excluída).");
+  r.status = statusDe(r);
+  navegar(MENU[1], { tipo: "rnc", rec: r, volta: volta || S.pagina, fotos: await db.listarFotos(id) });
+}
+function retomar() { const d = S.draft; S.draft = null; navegar(d.pagina, { tipo: d.tipo, rec: d.rec, volta: d.pagina }); }
+function fechar() { const v = S.edit?.volta || S.pagina; S.edit = null; S.draft = null; carregar().then(() => navegar(v)); }
+
+// ---------------- Editor RNC ----------------
+let fichaCache = null;
+async function ficha() { if (!fichaCache) { try { fichaCache = await db.carregarFicha(); } catch { fichaCache = { produtos: {}, partes: {} }; } } return fichaCache; }
+
+async function editorRnc(el) {
+  const E = S.edit, r = E.rec, P = S.cfg.parametros;
+  const FT = await ficha();
+  const novo = !r.id, fin = FINAIS.includes(r.status), trat = r.status !== APONTADO;
+  const dis = fin && !admin();
+  const secs = trat ? ["1 · Registro", "2 · Custos", "3 · Tratativa", "4 · Evidências"] : ["1 · Registro", "2 · Custos", "4 · Evidências"];
+  E.aba = Math.min(E.aba || 0, secs.length - 1);
+  // sugestões automáticas (só preenchem vazio ou sugestão anterior)
+  const sugerir = (k, v) => { v = Math.round(v * 100) / 100; if (!num(r[k]) || num(r[k]) === num(r["auto_" + k])) r[k] = v; r["auto_" + k] = v; };
+  const sp = (S.cfg.setor_params || {})[r.setor_origem] || {};
+  sugerir("custo_hora", num(sp.hora_media) || num(P.custo_hora_padrao));
+  const MAQ = S.cfg.maquinas || [];
+  const mq = MAQ.find((m) => m.codigo === r.maquina); if (mq) sugerir("custo_hora_maquina", num(mq.custo_hora));
+  if (r.produto && FT.produtos[r.produto]) {
+    if (r.produto_inteiro) sugerir("custo_material", FT.produtos[r.produto].valor * num(r.qtd_nc));
+    else if ((r.pecas_subst || []).length) sugerir("custo_material", r.pecas_subst.reduce((s, p) => s + num(p.qtd) * num(p.valor_unit), 0));
+  } else { const pc = (S.cfg.pecas || []).find((p) => p.codigo === r.cod_peca); if (pc) sugerir("custo_material", num(pc.custo_unit) * num(r.qtd_nc)); }
+
+  const defeitos = (S.cfg.setores || {})[r.setor_origem] || [];
+  const tit = novo ? "Nova não conformidade" : `${trat ? "Tratativa" : "Apontamento"} ${r.id}`;
+  let h = `<div class="btnrow"><button class="btn" id="e-volta">← Voltar</button></div>` + heading(tit, novo ? "Preencha os campos com *. Salve as alterações antes de sair." : `Etapa: ${r.status}`) +
+    (dis ? alerta("info", "Registro encerrado — somente o administrador pode alterar.") : "") +
+    `<div class="tabs">${secs.map((s, i) => `<button data-a="${i}" class="${i === E.aba ? "on" : ""}">${s}</button>`).join("")}</div>`;
+  const sec = secs[E.aba];
+  const o = { dis };
+  if (sec.startsWith("1")) {
+    h += card(row("c4 keep2", idate("data", "Data *", r.data, o), isel("setor_origem", "Setor de origem (gerador) *", setUser(), r.setor_origem, { ...o, ph: "Selecione…" }),
+        isel("setor_detectado", "Setor onde foi detectada", [...SETORES(), "Inspeção final", "Expedição", "Cliente"], r.setor_detectado, { ...o, ph: "" }), isel("turno", "Turno", TURNOS, r.turno, { ...o, ph: "" })) +
+      row("c4 keep2", isel("emitente", "Emitente", pessoas(), r.emitente, { dis: true }), isel("status", "Etapa", RNC_STATUS, r.status, { dis: true }),
+        isel("origem", "Classificação / origem", ORIGENS, r.origem, { ...o, ph: "" }), inp("cliente", "Cliente / Fornecedor", r.cliente, o)) +
+      row("c4 keep2", inp("op", "Ordem de produção (OP)", r.op, o),
+        (S.cfg.pecas || []).length ? icombo("cod_peca", "Peça", S.cfg.pecas.map((p) => [p.codigo, `${p.codigo} — ${p.descricao}`]), r.cod_peca, o) : inp("cod_peca", "Código da peça", r.cod_peca, o),
+        inp("desc_peca", "Descrição da peça", r.desc_peca, o), isel("tipo_nc", "Tipo de não conformidade", defeitos, r.tipo_nc, { ...o, ph: defeitos.length ? "Selecione…" : "Selecione o setor" })) +
+      row("c4 keep2", inum("qtd_nc", "Qtd NC", r.qtd_nc, o), inum("qtd_lote", "Qtd do lote", r.qtd_lote, o), isel("gravidade", "Gravidade", GRAVIDADE, r.gravidade, { ...o, ph: "" }),
+        isel("reincidente", "Reincidente?", ["Não", "Sim"], r.reincidente, o)), "Identificação") +
+      card(itxt("descricao", "Descrição do problema (o que, onde, quando, quanto) *", r.descricao, o), "Descrição");
+  } else if (sec.startsWith("2")) {
+    const prods = Object.values(FT.produtos).map((p) => [p.codigo, `${p.codigo} — ${p.nome}`]);
+    let ft = "";
+    if (prods.length) {
+      const pr = FT.produtos[r.produto];
+      ft = row("w31", icombo("produto", "Produto / Máquina (ficha técnica)", prods, r.produto, o),
+          pr ? `<div class="field"><label>&nbsp;</label>${ichk("produto_inteiro", "Máquina inteira retrabalhada/refugada", r.produto_inteiro, o)}</div>` : "");
+      if (pr) {
+        ft += `<div class="caption">Valor unitário do produto: ${brl(pr.valor)}${pr.familia ? " · " + esc(pr.familia) : ""}</div>`;
+        if (r.produto_inteiro) ft += `<div class="caption">Custo = ${brl(pr.valor)} × ${num(r.qtd_nc)} peça(s) NC</div>`;
+        else {
+          const pts = FT.partes[r.produto] || {};
+          const sel = r.pecas_subst || [];
+          const opts = Object.entries(pts).filter(([k]) => !sel.some((s) => s.chave === k)).map(([k, p]) => [k, `${p.codigo} — ${p.nome} (${brl(p.valor_unit)}/${p.un || "un"})`]);
+          ft += icombo("_addparte", "Partes substituídas (busque por nome, código ou desenho)", opts, "", { ...o, help: "Passe o cursor no ⓘ de cada parte para ver as características." }) +
+            sel.map((p, i) => { const d = pts[p.chave] || p;
+              const info = [`Tipo: ${d.tipo || ""}`, d.desenho ? `Desenho: ${d.desenho}` : "", d.grupo ? `Grupo: ${d.grupo}` : "", d.familia ? `Família: ${d.familia}` : "", `Unidade: ${d.un || "un"}`, d.qtd_no_produto ? `Qtd. por produto: ${d.qtd_no_produto}` : "", `Valor unitário: ${brl(p.valor_unit)}`].filter(Boolean).join("\n");
+              return `<div class="parte"><div><b>${esc(p.codigo)}</b> — ${esc(p.nome)}${tip(info)}</div>
+                <input type="number" min="0" step="any" inputmode="decimal" value="${num(p.qtd)}" data-pq="${i}" ${dis ? "disabled" : ""} aria-label="Quantidade">
+                <div class="num">${brl(num(p.qtd) * num(p.valor_unit))} ${dis ? "" : `<button class="btn sm danger" data-prm="${i}" title="Remover">✕</button>`}</div></div>`; }).join("") +
+            (sel.length ? `<div class="caption">Total das partes: ${brl(sel.reduce((s, p) => s + num(p.qtd) * num(p.valor_unit), 0))}</div>` : "");
+        }
+      }
+    }
+    h += card(ft + row("c4 keep2", inum("horas_homem", "Horas de retrabalho (pessoas)", r.horas_homem, o),
+        inum("custo_hora", "Valor por hora (R$/h)", r.custo_hora, { ...o, help: "Hora média do setor de origem (admin) ou valor padrão" }),
+        MAQ.length ? isel("maquina", "Máquina", MAQ.map((m) => [m.codigo, `${m.codigo} — ${m.descricao}`]), r.maquina, { ...o, ph: "" }) : "",
+        inum("horas_maquina", "Horas de máquina", r.horas_maquina, o)) +
+      row("c4 keep2", inum("custo_hora_maquina", "Valor por hora da máquina (R$/h)", r.custo_hora_maquina, o), inum("custo_material", "Material e refugo (R$)", r.custo_material, o),
+        `<div class="metric"><div class="l">Custo total da ocorrência</div><div class="v" id="e-custo">${brl(custo(r))}</div></div>`), "Custo da não conformidade");
+  } else if (sec.startsWith("3")) {
+    const A = S.acoes.filter((a) => a.rnc_id === r.id);
+    const tarefas = A.length ? tabela([["id", "Ação"], ["tipo", "Tipo"], ["o_que", "O que", "wrap"], ["quem", "Quem"], ["prazo", "Prazo"], ["status", "Status"]],
+      A.map((a) => ({ ...a, quem: nome(a.quem), prazo: fdate(a.quando) + (atrasada(a) ? " ⚠️ Atrasada" : "") })), { click: true, h: 320 }) : `<div class="caption">Nenhuma ação vinculada.</div>`;
+    h += card(row("c2", isel("responsavel", "Responsável pela tratativa *", pessoas(), r.responsavel, { ...o, ph: "Selecione…" }), isel("status", "Etapa PDCA", PDCA, PDCA.includes(r.status) ? r.status : "", { dis: !PDCA.includes(r.status) || dis, ph: r.status }))
+        + row("w21", itxt("contencao", "Ação de contenção imediata", r.contencao, o), isel("disposicao", "Disposição do material", DISPOSICAO, r.disposicao, { ...o, ph: "" })) +
+        row("c1", isel("resp_contencao", "Responsável pela contenção", pessoas(), r.resp_contencao, { ...o, ph: "" })), "P · Planejar — responsável e contenção") +
+      exp("Análise de causa — Ishikawa e 5 Porquês", `<div class="row c3">${M6.map(([k, t]) => itxt("ishikawa." + k, t, (r.ishikawa || {})[k], o)).join("")}</div>` +
+        [0, 1, 2, 3, 4].map((i) => inp("porques." + i, `${i + 1}º Por quê?`, (r.porques || [])[i], o)).join("") + itxt("causa_raiz", "Causa raiz identificada", r.causa_raiz, o), r.status === PDCA[0]) +
+      exp("D · Plano de ações — execução", tarefas + (r.id ? `<div class="btnrow" style="margin-top:.8rem"><button class="btn" id="e-nacao">+ Adicionar ação</button></div>` : `<div class="caption">Salve a RNC para adicionar ações.</div>`), r.status === PDCA[1]) +
+      exp("C · Verificação de eficácia / A · Padronização", row("c4 keep2", isel("eficaz", "Ações foram eficazes?", ["Pendente", "Sim", "Não"], r.eficaz, o), idate("data_verificacao", "Data da verificação", r.data_verificacao, o),
+        isel("resp_verificacao", "Responsável verificação", pessoas(), r.resp_verificacao, { ...o, ph: "" }), isel("necessita_nova_rnc", "Necessita nova RNC?", ["Não", "Sim"], r.necessita_nova_rnc || "Não", o)) +
+        itxt("obs_eficacia", "Evidências / observações da verificação", r.obs_eficacia, o), PDCA.slice(2).includes(r.status));
+  } else {
+    const F = E.fotos || [];
+    h += card((r.id ? "" : `<div class="caption">Os anexos serão enviados ao salvar o registro.</div>`) +
+      `<div class="fotos">${F.map((f) => `<figure><img src="${f.conteudo}" alt="${esc(f.nome)}" data-img><figcaption>${esc(f.nome)}</figcaption>${dis ? "" : `<button class="btn sm danger" data-fdel="${f.id}">Remover</button>`}</figure>`).join("")}
+       ${(E.novas || []).map((f) => `<figure><img src="${URL.createObjectURL(f)}" alt=""><figcaption>(nova) ${esc(f.name)}</figcaption></figure>`).join("")}</div>` +
+      (dis ? "" : `<div class="field" style="margin-top:1rem"><label>Adicionar fotos</label><input type="file" id="e-fotos" accept="image/*" multiple></div>`), "Fotos e evidências") +
+      exp("Histórico", (r.historico || []).slice().reverse().map((x) => `<div class="caption">${esc((x.em || "").replace("T", " "))} · ${esc(nome(x.por))} · ${esc(x.acao === "status" ? `${x.de} → ${x.para}` : x.acao)}</div>`).join("") ||
+        `<div class="caption">Criado por ${esc(nome(r.criado_por))}</div>`);
+  }
+  // botões
+  const podeAbrir = !novo && r.status === APONTADO;
+  h += `<hr><div class="btnrow">${dis ? "" : `<button class="btn primary" id="e-salvar">💾 Salvar</button>`}
+    ${r.status === APONTADO && !dis ? `<button class="btn" id="e-trat" title="Transforma o apontamento em tratativa (Planejar)">🚩 Abrir tratativa (PDCA)</button>` : ""}
+    ${admin() && trat && !fin ? `<button class="btn" id="e-fin">✅ Finalizar</button><button class="btn" id="e-canc">Cancelar RNC</button>` : ""}
+    ${admin() && fin ? `<button class="btn" id="e-reab">↩ Reabrir</button>` : ""}
+    ${!novo && admin() ? `<button class="btn danger" id="e-del">🗑 Excluir</button>` : ""}</div><div id="e-msg"></div>`;
+  el.innerHTML = h;
+  void podeAbrir;
+
+  // ligações
+  const set = (k, v) => { const p = k.split("."); if (p.length === 1) r[k] = v; else if (p[0] === "porques") { r.porques ||= ["", "", "", "", ""]; r.porques[+p[1]] = v; } else (r[p[0]] ||= {})[p[1]] = v; };
+  const RERENDER = ["setor_origem", "maquina", "produto_inteiro", "qtd_nc"];
+  $$("[data-k]", el).forEach((i) => {
+    const ev = i.tagName === "SELECT" || i.type === "checkbox" ? "change" : "input";
+    i.addEventListener(ev, () => {
+      set(i.dataset.k, i.type === "checkbox" ? i.checked : i.type === "number" ? num(i.value) : i.value);
+      if (i.dataset.k === "setor_origem") r.tipo_nc = "";
+      if (RERENDER.includes(i.dataset.k) && ev === "change") editorRnc(el);
+      else if ($("#e-custo")) $("#e-custo").textContent = brl(custo(r));
+    });
+    if (i.dataset.k === "qtd_nc") i.addEventListener("change", () => editorRnc(el));
+  });
+  $$("[data-combo]", el).forEach((i) => i.addEventListener("change", () => {
+    const v = comboValor(i), k = i.dataset.combo;
+    if (k === "_addparte") { const d = FT.partes[r.produto]?.[v]; if (d) (r.pecas_subst ||= []).push({ chave: v, tipo: d.tipo, codigo: d.codigo, nome: d.nome, qtd: 1, valor_unit: d.valor_unit }); }
+    else if (k === "produto") { if (v !== r.produto) { r.produto = v; r.pecas_subst = []; r.produto_inteiro = false; } }
+    else if (k === "cod_peca") { r.cod_peca = v; const pc = (S.cfg.pecas || []).find((p) => p.codigo === v); if (pc && !r.desc_peca) r.desc_peca = pc.descricao; }
+    else r[k] = v;
+    editorRnc(el);
+  }));
+  $$("[data-pq]", el).forEach((i) => i.addEventListener("change", () => { r.pecas_subst[+i.dataset.pq].qtd = num(i.value); editorRnc(el); }));
+  $$("[data-prm]", el).forEach((b) => (b.onclick = () => { r.pecas_subst.splice(+b.dataset.prm, 1); editorRnc(el); }));
+  $$("[data-a]", el).forEach((b) => (b.onclick = () => { E.aba = +b.dataset.a; editorRnc(el); }));
+  $$("[data-img]", el).forEach((i) => (i.onclick = () => verImagem(i.src)));
+  $$("tr[data-i]", el).forEach((t) => (t.onclick = () => { const A = S.acoes.filter((a) => a.rnc_id === r.id); abrirAcao(A[+t.dataset.i].id, { tipo: "rnc", rec: r, volta: E.volta, fotos: E.fotos, aba: E.aba }); }));
+  $("#e-volta").onclick = fechar;
+  if ($("#e-nacao")) $("#e-nacao").onclick = () => novaAcao(r.id, { tipo: "rnc", rec: r, volta: E.volta, fotos: E.fotos, aba: E.aba });
+  if ($("#e-fotos")) $("#e-fotos").onchange = (e) => { E.novas = [...(E.novas || []), ...e.target.files]; editorRnc(el); };
+  $$("[data-fdel]", el).forEach((b) => (b.onclick = async () => { if (!(await confirmar("Remover esta foto?", "Remover"))) return;
+    await db.excluirFoto(+b.dataset.fdel); E.fotos = await db.listarFotos(r.id); editorRnc(el); }));
+  const msg = (t, m) => ($("#e-msg").innerHTML = alerta(t, esc(m)));
+  const salvar = async (novoStatus) => {
+    const d = structuredClone(r);
+    if (novoStatus) d.status = novoStatus;
+    if (!d.setor_origem || !String(d.descricao || "").trim()) return msg("error", "Informe o setor de origem e a descrição.");
+    if (!admin() && !setUser().includes(d.setor_origem)) return msg("error", "Você não tem autorização para apontar neste setor.");
+    if (d.status === "Finalizada" && d.eficaz !== "Sim") return msg("error", "Para finalizar, a eficácia deve estar verificada como 'Sim'.");
+    if (d.status === "Finalizada" && S.acoes.some((a) => a.rnc_id === d.id && !["Concluída", "Cancelada"].includes(a.status))) return msg("error", "Existem tarefas abertas nesta tratativa.");
+    if (FINAIS.includes(d.status) && d.status !== r.status && !admin()) return msg("error", "Somente o gestor pode finalizar ou cancelar.");
+    try {
+      const s = await db.salvar("rnc", d, S.user.login);
+      const erros = [];
+      for (const f of E.novas || []) { try { await db.salvarFoto(s.id, f); } catch (e) { erros.push(`${f.name}: ${e.message}`); } }
+      E.novas = []; E.rec = s; E.fotos = await db.listarFotos(s.id); S.draft = null;
+      if (erros.length) toast("Algumas fotos não foram gravadas: " + erros.join("; "));
+      toast(`${s.id} salvo${E.fotos.length ? ` (${E.fotos.length} foto(s))` : ""}.`);
+      await carregar(); editorRnc(el);
+    } catch (e) { msg("error", e.message); }
+  };
+  if ($("#e-salvar")) $("#e-salvar").onclick = () => salvar();
+  if ($("#e-trat")) $("#e-trat").onclick = () => salvar(PDCA[0]);
+  if ($("#e-fin")) $("#e-fin").onclick = () => salvar("Finalizada");
+  if ($("#e-canc")) $("#e-canc").onclick = async () => (await confirmar(`Cancelar a ${r.id}?`, "Cancelar RNC")) && salvar("Cancelada");
+  if ($("#e-reab")) $("#e-reab").onclick = () => salvar(PDCA[0]);
+  if ($("#e-del")) $("#e-del").onclick = async () => {
+    if (!(await confirmar(`Excluir a ${r.id}? Ela vai para a lixeira.`))) return;
+    try { await db.excluir("rnc", r.id, S.user.login); toast(`${r.id} excluída.`); fechar(); } catch (e) { msg("error", e.message); }
+  };
+}
+
+// ---------------- Plano de ações ----------------
+function paginaAcoes(el) {
+  const f = (S.filtros.acoes ||= { setor: "", status: "", q: "", atr: false, minhas: false });
+  el.innerHTML = heading("Plano de ações", "Veja o que precisa ser feito, por quem e até quando. Selecione uma linha para atualizar a tarefa.") +
+    (S.draft?.tipo === "acao" ? alerta("warn", `Você tem uma ação em edição. <button class="btn sm" id="a-ret">Continuar</button> <button class="btn sm" id="a-desc">Descartar</button>`) : "") +
+    `<div class="btnrow"><button class="btn primary" id="a-nova">+ Criar ação</button></div>` +
+    card(row("c3", isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" }), isel("status", "Situação", ACAO_STATUS, f.status, { ph: "Todas as situações" }),
+      inp("q", "Buscar ação", f.q, { ph: "Número, tarefa ou responsável" })) + `<div class="btnrow">${ichk("atr", "Somente atrasadas", f.atr)}${ichk("minhas", "Somente minhas", f.minhas)}</div>`) + `<div id="a-tab"></div>`;
+  $("#a-nova").onclick = () => novaAcao("");
+  if ($("#a-ret")) { $("#a-ret").onclick = retomar; $("#a-desc").onclick = () => { S.draft = null; paginaAcoes(el); }; }
+  ligarFiltros($(".card", el), f, () => paginaAcoes(el));
+  const setorDe = (a) => S.rnc.find((r) => r.id === a.rnc_id)?.setor_origem || a.onde;
+  const q = f.q.trim().toLowerCase();
+  const L = S.acoes.filter((a) => (!f.setor || setorDe(a) === f.setor) && (!f.status || a.status === f.status) && (!f.atr || atrasada(a)) && (!f.minhas || a.quem === S.user.login) &&
+    (!q || [a.id, a.o_que, nome(a.quem), a.rnc_id].some((x) => String(x || "").toLowerCase().includes(q))))
+    .sort((a, b) => atrasada(b) - atrasada(a) || String(a.quando || "9999").localeCompare(String(b.quando || "9999")));
+  const rows = L.map((a) => ({ id: a.id, rnc: a.rnc_id || "—", tipo: a.tipo, o_que: a.o_que, quem: nome(a.quem), prazo: fdate(a.quando), status: a.status, atr: atrasada(a) ? "Sim" : "Não", fim: fdate(a.data_conclusao) }));
+  const cols = [["id", "Nº"], ["rnc", "RNC"], ["tipo", "Tipo"], ["o_que", "O que", "wrap"], ["quem", "Quem"], ["prazo", "Prazo"], ["status", "Status"], ["atr", "Atrasada"], ["fim", "Concluída em"]];
+  const box = $("#a-tab");
+  if (!rows.length) return (box.innerHTML = alerta("info", "Nenhuma ação encontrada. Ajuste os filtros ou crie uma nova ação."));
+  box.innerHTML = `<div class="caption">${rows.length} ação(ões) · clique em uma linha para abrir · atualizado ${hora()}</div>` + tabela(cols, rows, { click: true }) +
+    `<div class="btnrow" style="margin-top:.8rem"><button class="btn" id="a-csv">⬇ Exportar CSV</button></div>`;
+  $$("tr[data-i]", box).forEach((t) => (t.onclick = () => abrirAcao(rows[+t.dataset.i].id)));
+  $("#a-csv").onclick = () => baixarCSV("acoes.csv", cols, rows);
+}
+function novaAcao(rncId, pai) {
+  const rn = S.rnc.find((r) => r.id === rncId);
+  S.pagina = pai ? S.pagina : MENU[3];
+  navegar(S.pagina, { tipo: "acao", rec: { status: "Pendente", tipo: "Corretiva", rnc_id: rncId || "", onde: rn?.setor_origem || "" }, volta: S.pagina, pai });
+}
+async function abrirAcao(id, pai) {
+  const a = await db.obter("acoes", id);
+  if (!a) return toast("Ação não encontrada.");
+  navegar(pai ? S.pagina : MENU[3], { tipo: "acao", rec: a, volta: S.pagina, pai });
+}
+function editorAcao(el) {
+  const E = S.edit, a = E.rec;
+  const rncs = S.rnc.filter((r) => r.status !== APONTADO || r.id === a.rnc_id);
+  el.innerHTML = `<div class="btnrow"><button class="btn" id="c-volta">← Voltar</button></div>` +
+    heading(a.id ? `Ação ${a.id}` : "Nova ação", "Defina a tarefa, o responsável e o prazo. Os campos com * são obrigatórios.") +
+    card(row("w21", isel("rnc_id", "RNC vinculada", rncs.map((r) => [r.id, rncLbl(r)]), a.rnc_id, { ph: "(ação avulsa)" }), isel("tipo", "Tipo de ação", TIPO_ACAO, a.tipo)) +
+      row("c2", itxt("o_que", "O que será feito? *", a.o_que), itxt("por_que", "Por que esta ação é necessária?", a.por_que)) +
+      row("c4 keep2", isel("onde", "Setor de execução", a.rnc_id ? SETORES() : setUser(), a.onde, { ph: "" }), isel("quem", "Responsável *", pessoas(), a.quem, { ph: "Selecione…" }),
+        idate("quando", "Prazo de entrega *", a.quando), inum("quanto", "Custo previsto (R$)", a.quanto)) + itxt("como", "Como será executada?", a.como), "Planejamento da ação") +
+    exp("Conclusão e evidência da execução", row("c3", isel("status", "Situação", ACAO_STATUS, a.status), idate("data_conclusao", "Data de conclusão", a.data_conclusao),
+      inp("evidencia", "Evidência da execução", a.evidencia)), a.status === "Concluída") +
+    (a.historico ? exp("Histórico", a.historico.slice().reverse().map((x) => `<div class="caption">${esc((x.em || "").replace("T", " "))} · ${esc(nome(x.por))} · ${esc(x.acao === "status" ? `${x.de} → ${x.para}` : x.acao)}</div>`).join("")) : "") +
+    `<hr><div class="btnrow"><button class="btn primary" id="c-salvar">💾 Salvar</button>${a.id && admin() ? `<button class="btn danger" id="c-del">🗑 Excluir</button>` : ""}</div><div id="c-msg"></div>`;
+  $$("[data-k]", el).forEach((i) => i.addEventListener(i.tagName === "SELECT" ? "change" : "input", () => {
+    a[i.dataset.k] = i.type === "number" ? num(i.value) : i.value;
+    if (i.dataset.k === "rnc_id") { a.onde = S.rnc.find((r) => r.id === a.rnc_id)?.setor_origem || a.onde; editorAcao(el); }
+    if (i.dataset.k === "status" && a.status === "Concluída" && !a.data_conclusao) { a.data_conclusao = hoje(); editorAcao(el); }
+  }));
+  const voltar = () => { if (E.pai) { S.edit = E.pai; carregar().then(render); } else fechar(); };
+  $("#c-volta").onclick = voltar;
+  const msg = (m) => ($("#c-msg").innerHTML = alerta("error", esc(m)));
+  $("#c-salvar").onclick = async () => {
+    if (!String(a.o_que || "").trim() || !a.quem || !a.quando) return msg("Preencha O que, Quem e Prazo.");
+    if (!a.rnc_id && !admin() && !setUser().includes(a.onde)) return msg("Informe um setor de execução autorizado.");
+    try { E.rec = await db.salvar("acoes", a, S.user.login); toast(`Ação ${E.rec.id} salva.`); S.draft = null; await carregar(); voltar(); }
+    catch (e) { msg(e.message); }
+  };
+  if ($("#c-del")) $("#c-del").onclick = async () => { if (await confirmar(`Excluir a ação ${a.id}?`)) { await db.excluir("acoes", a.id, S.user.login); toast("Ação excluída."); voltar(); } };
+}
+
+// ---------------- Kanban PDCA ----------------
+function paginaKanban(el) {
+  const f = (S.filtros.kanban ||= { setor: "", fin: false });
+  const etapas = f.fin ? [...PDCA, "Finalizada"] : PDCA;
+  el.innerHTML = heading("Tratativas PDCA", "Acompanhe cada problema do planejamento à verificação. Abra um cartão para avançar a etapa.") +
+    card(row("w31", isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" }), `<div class="field"><label>&nbsp;</label>${ichk("fin", "Incluir finalizadas", f.fin)}</div>`)) +
+    `<div class="kanban" style="--c:${etapas.length}">${etapas.map((et) => {
+      const cards = S.rnc.filter((r) => r.status === et && (!f.setor || r.setor_origem === f.setor)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      return `<div class="kcol"><h4>${esc(et)}</h4><span class="caption">${cards.length} cartão(ões)</span>` + (cards.length ? cards.map((r) => {
+        const A = S.acoes.filter((a) => a.rnc_id === r.id), atr = A.filter(atrasada).length;
+        return `<div class="kcard"><b>${esc(r.id)}</b> · ${esc(r.setor_origem || "")}<br>${esc(r.tipo_nc || (r.descricao || "").slice(0, 60))}
+          <div class="caption">${r.gravidade ? "Gravidade: " + esc(r.gravidade) + " · " : ""}👤 ${esc(nome(r.responsavel) || "—")}<br>
+          ✅ ${A.filter((a) => a.status === "Concluída").length}/${A.length} tarefas${atr ? ` · ⚠️ ${atr} atrasada(s)` : ""}</div>
+          <button class="btn sm block" data-card="${esc(r.id)}">Abrir</button></div>`; }).join("") : `<div class="caption" style="margin-top:.75rem">Nenhuma tratativa nesta etapa.</div>`) + `</div>`;
+    }).join("")}</div><div class="caption">Atualizado às ${hora()}</div>`;
+  ligarFiltros($(".card", el), f, () => paginaKanban(el));
+  $$("[data-card]", el).forEach((b) => (b.onclick = () => cartao(b.dataset.card)));
+}
+async function mover(r, novo) {
+  if (novo === "Finalizada") {
+    if (r.eficaz !== "Sim") return toast("Para finalizar, a eficácia deve estar verificada como 'Sim' (em Editar).");
+    if (S.acoes.some((a) => a.rnc_id === r.id && !["Concluída", "Cancelada"].includes(a.status))) return toast("Existem tarefas abertas nesta tratativa.");
+  }
+  try { await db.salvar("rnc", { ...r, status: novo }, S.user.login); toast(`${r.id} → ${novo}`); await carregar(); return true; }
+  catch (e) { toast(e.message); }
+}
+async function cartao(id) {
+  const r = S.rnc.find((x) => x.id === id); if (!r) return;
+  const A = S.acoes.filter((a) => a.rnc_id === id), F = await db.listarFotos(id);
+  const kv = [["Data", fdate(r.data)], ["Setor de origem", r.setor_origem], ["Detectado em", r.setor_detectado], ["Turno", r.turno], ["Emitente", nome(r.emitente)], ["Responsável", nome(r.responsavel)],
+    ["Classificação", r.origem], ["Cliente/Fornecedor", r.cliente], ["Peça", `${r.cod_peca || ""} ${r.desc_peca || ""}`], ["OP", r.op], ["Tipo de NC", r.tipo_nc], ["Qtd NC / lote", `${r.qtd_nc || 0} / ${r.qtd_lote || 0}`],
+    ["Gravidade", r.gravidade], ["Reincidente", r.reincidente], ["Custo total", brl(custo(r))], ["Disposição", r.disposicao]];
+  const ish = M6.filter(([k]) => (r.ishikawa || {})[k]).map(([k, t]) => `<b>${t}:</b> ${esc(r.ishikawa[k])}`).join("<br>");
+  const pq = (r.porques || []).filter(Boolean);
+  const i = PDCA.indexOf(r.status);
+  const m = modal(`<h3>${esc(r.id)} · ${esc(r.status)}</h3><div class="kv">${kv.map(([k, v]) => `<div><b>${k}</b>${esc(v || "—")}</div>`).join("")}</div>` +
+    card(`<b>Descrição</b><p>${esc(r.descricao || "")}</p>${r.contencao ? `<b>Contenção</b><p>${esc(r.contencao)}</p>` : ""}${ish ? `<p><b>Ishikawa</b><br>${ish}</p>` : ""}
+      ${pq.length ? `<p><b>5 Porquês:</b> ${pq.map(esc).join(" → ")}</p>` : ""}${r.causa_raiz ? `<p><b>Causa raiz:</b> ${esc(r.causa_raiz)}</p>` : ""}
+      <p><b>Eficácia:</b> ${esc(r.eficaz || "Pendente")}${r.data_verificacao ? ` (${fdate(r.data_verificacao)})` : ""}</p>`) +
+    `<h4>Tarefas (${A.filter((a) => a.status === "Concluída").length}/${A.length} concluídas)</h4>` +
+    (A.length ? tabela([["id", "Nº"], ["o_que", "O que", "wrap"], ["quem", "Responsável"], ["prazo", "Prazo"], ["status", "Status"], ["ev", "Evidência", "wrap"]],
+      A.map((a) => ({ ...a, quem: nome(a.quem), prazo: fdate(a.quando) + (atrasada(a) ? " ⚠️" : ""), ev: a.evidencia || "" })), { h: 260 }) : `<div class="caption">Nenhuma tarefa.</div>`) +
+    (F.length ? `<h4 style="margin-top:1rem">Fotos</h4><div class="fotos">${F.map((f) => `<figure><img src="${f.conteudo}" data-img alt=""><figcaption>${esc(f.nome)}</figcaption></figure>`).join("")}</div>` : "") +
+    exp("Histórico", (r.historico || []).slice().reverse().map((x) => `<div class="caption">${esc((x.em || "").replace("T", " "))} · ${esc(nome(x.por))} · ${esc(x.acao === "status" ? `${x.de} → ${x.para}` : x.acao)}</div>`).join("")) +
+    `<hr><div class="btnrow">${i > 0 ? `<button class="btn" data-m="${PDCA[i - 1]}">← ${PDCA[i - 1]}</button>` : ""}
+      ${i >= 0 && i < 3 ? `<button class="btn primary" data-m="${PDCA[i + 1]}">${PDCA[i + 1]} →</button>` : ""}
+      <button class="btn" id="k-ed">✏️ Editar</button><button class="btn" id="k-tar">+ Tarefa</button>
+      ${admin() && i === 3 ? `<button class="btn primary" data-m="Finalizada">✅ Finalizar</button>` : ""}
+      ${admin() && FINAIS.includes(r.status) ? `<button class="btn" data-m="${PDCA[0]}">↩ Reabrir</button>` : ""}</div>`);
+  $$("[data-img]", m).forEach((x) => (x.onclick = () => verImagem(x.src)));
+  $$("[data-m]", m).forEach((b) => (b.onclick = async () => { if (await mover(r, b.dataset.m)) { m.fechar(); render(); } }));
+  $("#k-ed", m).onclick = () => { m.fechar(); abrirRnc(id, MENU[2]); };
+  $("#k-tar", m).onclick = () => { m.fechar(); S.pagina = MENU[2]; navegar(MENU[2], { tipo: "acao", rec: { status: "Pendente", tipo: "Corretiva", rnc_id: id, onde: r.setor_origem }, volta: MENU[2] }); };
+}
+
+// ---------------- boot ----------------
+(async () => {
+  try { S.user = await db.sessaoAtual(); } catch { S.user = null; }
+  if (S.user) iniciar().catch((e) => telaLogin(e.message)); else telaLogin();
+})();
