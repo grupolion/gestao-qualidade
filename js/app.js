@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260929g";
+import * as db from "./db.js?v=20260929h";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929g";
-import { paginaAdmin } from "./admin.js?v=20260929g";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929h";
+import { paginaAdmin } from "./admin.js?v=20260929h";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -215,7 +215,7 @@ function painel(el, f) {
   const abas = ["Custos e horas", "Produtos e peças", "Problemas e setores", "Situação e atrasos"];
   el.innerHTML = `<div class="metrics">${k.join("")}</div>` + exp("Outros indicadores", `<div class="metrics">${k2.join("")}</div>`) +
     `<div class="tabs">${abas.map((t, i) => `<button class="${i === aba ? "on" : ""}" data-s="${i}">${t}</button>`).join("")}</div>` +
-    (aba < 3 ? `<div class="tabs" style="margin-top:-.4rem">${[["m", "📅 Mês a mês"], ["a", "📆 Ano a ano"]].map(([v, t]) => `<button class="${v === visao ? "on" : ""}" data-v="${v}">${t}</button>`).join("")}</div>` : "") +
+    (aba < 3 ? `<div class="tabs" style="margin-top:-.4rem">${[["d", "🗓️ Dia a dia"], ["m", "📅 Mês a mês"], ["a", "📆 Ano a ano"]].map(([v, t]) => `<button class="${v === visao ? "on" : ""}" data-v="${v}">${t}</button>`).join("")}</div>` : "") +
     (R.length ? `<div class="row c2" id="g-ch"></div>` : alerta("info", "Sem dados no período.")) +
     `<div class="caption">Top 10 = soma do período filtrado. Atualizado às ${hora()}</div>`;
   $$("[data-s]", el).forEach((b) => (b.onclick = () => { S.filtros.painelSub = +b.dataset.s; painel(el, f); }));
@@ -230,9 +230,14 @@ function painel(el, f) {
     options: { indexAxis: "y", plugins: { legend: { display: false }, tooltip: fmt ? { callbacks: { label: (c) => fmt(c.raw) } } : {} } } });
   const top = (pares) => pares.filter((x) => x[1] > 0).slice(0, 10);
   // eixo temporal (mês a mês ou ano a ano)
-  const per = (r) => String(r.data || "").slice(0, visao === "a" ? 4 : 7);
-  const PER = [...new Set(R.map(per).filter(Boolean))].sort();
-  const lblPer = PER.map((p) => p.split("-").reverse().join("/"));
+  const per = (r) => String(r.data || "").slice(0, visao === "a" ? 4 : visao === "d" ? 10 : 7);
+  let PER = [...new Set(R.map(per).filter(Boolean))].sort();
+  if (visao === "d" && PER.length) { // dia a dia: todos os dias do período (inclusive sem registros)
+    const ini = f.de || PER[0], fim = f.ate || PER[PER.length - 1]; const dias = [];
+    for (let d = ini; d <= fim && dias.length < 800; d = addDias(d, 1)) dias.push(d);
+    if (dias.length) PER = dias;
+  }
+  const lblPer = PER.map((p) => visao === "d" ? p.slice(8, 10) + "/" + p.slice(5, 7) : p.split("-").reverse().join("/"));
   const serie = (fn, arr = R) => PER.map((p) => arr.filter((r) => per(r) === p).reduce((s, r) => s + fn(r), 0));
   const CORES = [BRAND, "#1f2a44", "#e8a33d", "#3a8f5c", "#7b5ea7", "#c0504d", "#2e86ab", "#8c8c8c", "#b5651d", "#5d9b9b"];
   const temporal = (titulo, datasets, fmt, empilhado) => grafico(bloco(titulo, true), { type: "bar", legend: datasets.length > 1,
