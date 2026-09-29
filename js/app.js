@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260929e";
+import * as db from "./db.js?v=20260929f";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929e";
-import { paginaAdmin } from "./admin.js?v=20260929e";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929f";
+import { paginaAdmin } from "./admin.js?v=20260929f";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -672,8 +672,33 @@ async function mover(r, novo) {
     if (r.eficaz !== "Sim") return toast("Para finalizar, a eficácia deve estar verificada como 'Sim' (em Editar).");
     if (S.acoes.some((a) => a.rnc_id === r.id && !["Concluída", "Cancelada"].includes(a.status))) return toast("Existem tarefas abertas nesta tratativa.");
   }
-  try { await db.salvar("rnc", { ...r, status: novo }, S.user.login); toast(`${r.id} → ${novo}`); await carregar(); return true; }
-  catch (e) { toast(e.message); }
+  const reg = await registroEtapa(r, novo); if (!reg) return false;
+  try {
+    const ev = [...arr(r.evolucao), { de: r.status || "", para: novo, em: new Date().toISOString().slice(0, 19), por: S.user.login, texto: reg.texto, fotos: reg.fotos.length }];
+    await db.salvar("rnc", { ...r, status: novo, evolucao: ev }, S.user.login);
+    const erros = [];
+    for (const f of reg.fotos) { try { await db.salvarFoto(r.id, new File([f], `Etapa ${novo} - ${f.name}`, { type: f.type })); } catch (e) { erros.push(f.name); } }
+    toast(`${r.id} → ${novo}` + (erros.length ? ` (fotos não gravadas: ${erros.join(", ")})` : "")); await carregar(); return true;
+  } catch (e) { toast(e.message); return false; }
+}
+// pede o que foi feito (obrigatório) e fotos opcionais antes de mudar de etapa
+function registroEtapa(r, novo) {
+  return new Promise((ok) => {
+    let feito = false;
+    const m = modal(`<h3>${esc(r.id)}: ${esc(r.status || "")} → ${esc(novo)}</h3>
+      <div class="field"><label for="et-txt">O que foi feito para mudar de etapa? *</label><textarea id="et-txt" rows="4" placeholder="Descreva as ações realizadas, resultados, evidências…"></textarea></div>
+      <div class="field"><label for="et-fot">Anexar fotos (opcional)</label><input type="file" id="et-fot" accept="image/*" multiple></div>
+      <div id="et-msg"></div>
+      <div class="btnrow"><button class="btn primary" id="et-ok">Confirmar mudança</button><button class="btn" id="et-no">Cancelar</button></div>`,
+      { sm: true, onClose: () => { if (!feito) ok(null); } });
+    $("#et-no", m).onclick = () => m.fechar();
+    $("#et-ok", m).onclick = () => {
+      const texto = $("#et-txt", m).value.trim();
+      if (!texto) { $("#et-msg", m).innerHTML = alerta("error", "Descreva o que foi feito."); return; }
+      feito = true; const fotos = [...($("#et-fot", m).files || [])]; m.fechar(); ok({ texto, fotos });
+    };
+    setTimeout(() => $("#et-txt", m).focus(), 50);
+  });
 }
 async function cartao(id) {
   const r = S.rnc.find((x) => x.id === id); if (!r) return;
@@ -692,6 +717,8 @@ async function cartao(id) {
     (A.length ? tabela([["id", "Nº"], ["o_que", "O que", "wrap"], ["quem", "Responsável"], ["prazo", "Prazo"], ["status", "Status"], ["ev", "Evidência", "wrap"]],
       A.map((a) => ({ ...a, quem: nome(a.quem), prazo: fdate(a.quando) + (atrasada(a) ? " ⚠️" : ""), ev: a.evidencia || "" })), { h: 260 }) : `<div class="caption">Nenhuma tarefa.</div>`) +
     (F.length ? `<h4 style="margin-top:1rem">Fotos</h4><div class="fotos">${F.map((f) => `<figure><img src="${f.conteudo}" data-img alt=""><figcaption>${esc(f.nome)}</figcaption></figure>`).join("")}</div>` : "") +
+    (arr(r.evolucao).length ? `<h4 style="margin-top:1rem">Evolução das etapas</h4>` + arr(r.evolucao).slice().reverse().map((x) =>
+      card(`<div class="caption">${esc((x.em || "").replace("T", " "))} · ${esc(nome(x.por))} · <b>${esc(x.de)} → ${esc(x.para)}</b>${x.fotos ? ` · 📷 ${x.fotos}` : ""}</div><p style="white-space:pre-wrap;margin:.3rem 0 0">${esc(x.texto)}</p>`)).join("") : "") +
     exp("Histórico", (r.historico || []).slice().reverse().map((x) => `<div class="caption">${esc((x.em || "").replace("T", " "))} · ${esc(nome(x.por))} · ${esc(x.acao === "status" ? `${x.de} → ${x.para}` : x.acao)}</div>`).join("")) +
     `<hr><div class="btnrow">${i > 0 ? `<button class="btn" data-m="${PDCA[i - 1]}">← ${PDCA[i - 1]}</button>` : ""}
       ${i >= 0 && i < 3 ? `<button class="btn primary" data-m="${PDCA[i + 1]}">${PDCA[i + 1]} →</button>` : ""}
