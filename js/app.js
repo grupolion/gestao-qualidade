@@ -320,7 +320,7 @@ async function editorRnc(el) {
   const sugerir = (k, v) => { v = Math.round(v * 100) / 100; if (!num(r[k]) || num(r[k]) === num(r["auto_" + k])) r[k] = v; r["auto_" + k] = v; };
   const sp = (S.cfg.setor_params || {})[r.setor_origem] || {};
   if (!fin) r.custo_hora = num(sp.hora_media) || num(P.custo_hora_padrao);
-  const MAQ = S.cfg.maquinas || [];
+  const MAQ = (S.cfg.maquinas || []).map((m) => ({ ...m, codigo: m.nome || m.descricao || m.codigo, descricao: "" })).filter((m) => !r.setor_origem || m.setor === r.setor_origem);
   if (!Array.isArray(r.maquinas)) r.maquinas = r.maquina ? [{ codigo: r.maquina, horas: num(r.horas_maquina) }] : [];
   if (!fin) {
     r.maquinas.forEach((m) => { const c = MAQ.find((x) => x.codigo === m.codigo); m.valor_hora = c ? num(c.custo_hora) : num(m.valor_hora); });
@@ -377,11 +377,11 @@ async function editorRnc(el) {
       `<div class="field"><label>Máquinas usadas no retrabalho</label>` +
       (r.maquinas.length ? `<div class="tbl-wrap"><table class="edit"><thead><tr><th>Máquina</th><th>Horas</th><th>R$/h</th><th>Custo</th><th></th></tr></thead><tbody>` +
         r.maquinas.map((m, i) => { const c = MAQ.find((x) => x.codigo === m.codigo);
-          return `<tr><td>${esc(c ? `${c.codigo} — ${c.descricao}` : m.codigo)}</td><td><input type="number" step="any" min="0" inputmode="decimal" data-mh="${i}" value="${esc(m.horas ?? "")}" ${dis ? "disabled" : ""}></td>
+          return `<tr><td>${esc(c ? c.codigo : m.codigo)}</td><td><input type="number" step="any" min="0" inputmode="decimal" data-mh="${i}" value="${esc(m.horas ?? "")}" ${dis ? "disabled" : ""}></td>
             <td>${brl(m.valor_hora)}</td><td>${brl(num(m.horas) * num(m.valor_hora))}</td><td>${dis ? "" : `<button class="btn sm danger" data-mrm="${i}">✕</button>`}</td></tr>`; }).join("") +
         `</tbody></table></div>` : `<div class="caption">Nenhuma máquina adicionada.</div>`) +
-      (!dis && MAQ.length ? isel("_addmaq", "Adicionar máquina", MAQ.filter((m) => !r.maquinas.some((x) => x.codigo === m.codigo)).map((m) => [m.codigo, `${m.codigo} — ${m.descricao}`]), "", { ph: "Selecione para adicionar…" }) : "") +
-      (!MAQ.length ? `<div class="caption">Nenhuma máquina cadastrada no painel admin.</div>` : "") + `</div>` +
+      (!dis && MAQ.length ? isel("_addmaq", "Adicionar máquina", MAQ.filter((m) => !r.maquinas.some((x) => x.codigo === m.codigo)).map((m) => [m.codigo, m.codigo]), "", { ph: "Selecione para adicionar…" }) : "") +
+      (!MAQ.length ? `<div class="caption">${r.setor_origem ? "Nenhuma máquina cadastrada para o setor " + esc(r.setor_origem) + "." : "Selecione o setor de origem para ver as máquinas."}</div>` : "") + `</div>` +
       row("c4 keep2",
         `<div class="metric"><div class="l">Custo total da ocorrência</div><div class="v" id="e-custo">${brl(custo(r))}</div></div>`), "Custo da não conformidade");
   } else if (sec.startsWith("3")) {
@@ -424,7 +424,7 @@ async function editorRnc(el) {
     i.addEventListener(ev, () => {
       if (i.dataset.k === "_addmaq") { if (i.value) r.maquinas.push({ codigo: i.value, horas: 0 }); return editorRnc(el); }
       set(i.dataset.k, i.type === "checkbox" ? i.checked : i.type === "number" ? num(i.value) : i.value);
-      if (i.dataset.k === "setor_origem") r.tipo_nc = "";
+      if (i.dataset.k === "setor_origem") { r.tipo_nc = ""; r.maquinas = []; }
       if (i.dataset.k === "origem" && !CLI_ORIG.includes(r.origem)) r.cliente = "";
       if (RERENDER.includes(i.dataset.k) && ev === "change") editorRnc(el);
       else if ($("#e-custo")) $("#e-custo").textContent = brl(custo(r));
@@ -570,9 +570,9 @@ function paginaKanban(el) {
     card(row("w31", isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" }), `<div class="field"><label>&nbsp;</label>${ichk("fin", "Incluir finalizadas", f.fin)}</div>`)) +
     `<div class="kanban" style="--c:${etapas.length}">${etapas.map((et) => {
       const cards = S.rnc.filter((r) => r.status === et && (!f.setor || r.setor_origem === f.setor)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
-      return `<div class="kcol"><h4>${esc(et)}</h4><span class="caption">${cards.length} cartão(ões)</span>` + (cards.length ? cards.map((r) => {
+      return `<div class="kcol" data-et="${esc(et)}"><h4>${esc(et)}</h4><span class="caption">${cards.length} cartão(ões)</span>` + (cards.length ? cards.map((r) => {
         const A = S.acoes.filter((a) => a.rnc_id === r.id), atr = A.filter(atrasada).length;
-        return `<div class="kcard"><b>${esc(r.id)}</b> · ${esc(r.setor_origem || "")}<br>${esc(r.tipo_nc || (r.descricao || "").slice(0, 60))}
+        return `<div class="kcard" data-drag="${esc(r.id)}"><b>${esc(r.id)}</b> · ${esc(r.setor_origem || "")}<br>${esc(r.tipo_nc || (r.descricao || "").slice(0, 60))}
           <div class="caption">${r.gravidade ? "Gravidade: " + esc(r.gravidade) + " · " : ""}👤 ${esc(nome(r.responsavel) || "—")}<br>
           ✅ ${A.filter((a) => a.status === "Concluída").length}/${A.length} tarefas${atr ? ` · ⚠️ ${atr} atrasada(s)` : ""}</div>
           <button class="btn sm block" data-card="${esc(r.id)}">Abrir</button></div>`; }).join("") : `<div class="caption" style="margin-top:.75rem">Nenhuma tratativa nesta etapa.</div>`) + `</div>`;
@@ -580,6 +580,47 @@ function paginaKanban(el) {
   ligarFiltros($(".card", el), f, () => paginaKanban(el));
   $$("[data-card]", el).forEach((b) => (b.onclick = async () => { b.disabled = true; const t = b.textContent; b.textContent = "Abrindo…";
     try { await cartao(b.dataset.card); } catch (e) { toast("Erro ao abrir: " + e.message, "⚠️"); } finally { b.disabled = false; b.textContent = t; } }));
+  arrastar(el, () => paginaKanban(el));
+}
+// arrastar e soltar (mouse: arraste direto; celular: segure ~0,3s e arraste)
+function arrastar(el, render) {
+  $$("[data-drag]", el).forEach((c) => {
+    c.style.touchAction = "pan-y";
+    c.addEventListener("touchmove", (e) => { if (c.dataset.arr) e.preventDefault(); }, { passive: false });
+    c.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button") || e.button > 0) return;
+      const x0 = e.clientX, y0 = e.clientY, touch = e.pointerType !== "mouse";
+      let ghost = null, alvo = null, timer = null, pronto = !touch;
+      if (touch) timer = setTimeout(() => { pronto = true; c.dataset.arr = "1"; navigator.vibrate?.(30); c.style.outline = "2px solid var(--brand)"; }, 300);
+      const colDe = (x, y) => document.elementsFromPoint(x, y).find((n) => n.matches?.(".kcol"));
+      const move = (ev) => {
+        if (!pronto) { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) fim(); return; }
+        if (!ghost) {
+          if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+          const b = c.getBoundingClientRect();
+          ghost = c.cloneNode(true); Object.assign(ghost.style, { position: "fixed", width: b.width + "px", pointerEvents: "none", zIndex: 999, opacity: ".9", transform: "rotate(2deg)", boxShadow: "0 8px 24px rgba(0,0,0,.25)" });
+          document.body.append(ghost); c.style.opacity = ".35"; try { c.setPointerCapture(ev.pointerId); } catch {}
+        }
+        ev.preventDefault();
+        ghost.style.left = ev.clientX - 20 + "px"; ghost.style.top = ev.clientY - 20 + "px";
+        const k = colDe(ev.clientX, ev.clientY);
+        if (k !== alvo) { alvo?.classList.remove("drop"); alvo = k; alvo?.classList.add("drop"); }
+        const kb = c.closest(".kanban"), rb = kb.getBoundingClientRect();
+        if (ev.clientX > rb.right - 40) kb.scrollLeft += 12; else if (ev.clientX < rb.left + 40) kb.scrollLeft -= 12;
+      };
+      const fim = async () => {
+        clearTimeout(timer); delete c.dataset.arr; c.style.outline = ""; c.style.opacity = "";
+        removeEventListener("pointermove", move); removeEventListener("pointerup", fim); removeEventListener("pointercancel", fim);
+        if (!ghost) return; ghost.remove(); alvo?.classList.remove("drop");
+        const novo = alvo?.dataset.et, r = S.rnc.find((x) => x.id === c.dataset.drag);
+        if (!r || !novo || novo === r.status) return;
+        if (novo === "Finalizada" && !admin()) return toast("Somente o administrador finaliza.");
+        if (FINAIS.includes(r.status) && !admin()) return toast("Somente o administrador reabre.");
+        if (await mover(r, novo)) render();
+      };
+      addEventListener("pointermove", move, { passive: false }); addEventListener("pointerup", fim); addEventListener("pointercancel", fim);
+    });
+  });
 }
 async function mover(r, novo) {
   if (novo === "Finalizada") {

@@ -149,3 +149,4 @@ table.edit thead th:first-child { z-index: 3; background: #f8fafc; }
 table.edit td:first-child input { font-weight: 600; }
 table.edit td:not(:first-child) input { min-width: 110px; }
 .modal { -webkit-overflow-scrolling: touch; z-index: 1000; }
+.kcol.drop { outline: 2px dashed var(--brand); background: #fff4ec; } .kcard[data-drag] { cursor: grab; user-select: none; -webkit-user-select: none; }

@@ -20,17 +20,22 @@ const salvarCfg = async (k, v, again, msg = "Salvo.") => {
 // tabela editável simples (linhas dinâmicas)
 function grade(cols, linhas) {
   return `<div class="tbl-wrap"><table class="edit"><thead><tr>${cols.map((c) => `<th>${esc(c[1])}</th>`).join("")}<th></th></tr></thead><tbody>
-    ${linhas.map((l) => `<tr>${cols.map((c) => `<td><input data-c="${c[0]}" ${c[2] === "num" ? 'type="number" step="any" min="0" inputmode="decimal"' : ""} value="${esc(l[c[0]] ?? "")}"></td>`).join("")}
+    ${linhas.map((l) => `<tr>${cols.map((c) => celula(c, l[c[0]])).join("")}
     <td><button class="btn sm danger" data-rm>✕</button></td></tr>`).join("")}</tbody></table></div>
     <div class="btnrow" style="margin-top:.6rem"><button class="btn" data-add>+ Linha</button><button class="btn primary" data-save>💾 Salvar</button></div>`;
+}
+function celula(c, v = "") {
+  if (c[2] === "sel") { const op = [...c[3]]; if (v && !op.includes(v)) op.push(v);
+    return `<td><select data-c="${c[0]}"><option value=""></option>${op.map((o) => `<option ${o === v ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></td>`; }
+  return `<td><input data-c="${c[0]}" ${c[2] === "num" ? 'type="number" step="any" min="0" inputmode="decimal"' : ""} value="${esc(v ?? "")}"></td>`;
 }
 function ligarGrade(box, cols, onSave) {
   const tb = $("tbody", box);
   $("[data-add]", box).onclick = () => { const tr = document.createElement("tr");
-    tr.innerHTML = cols.map((c) => `<td><input data-c="${c[0]}" ${c[2] === "num" ? 'type="number" step="any" min="0"' : ""}></td>`).join("") + `<td><button class="btn sm danger" data-rm>✕</button></td>`;
+    tr.innerHTML = cols.map((c) => celula(c)).join("") + `<td><button class="btn sm danger" data-rm>✕</button></td>`;
     tb.append(tr); };
   tb.addEventListener("click", (e) => { if (e.target.matches("[data-rm]")) e.target.closest("tr").remove(); });
-  $("[data-save]", box).onclick = () => onSave($$("tr", tb).map((tr) => Object.fromEntries($$("input", tr).map((i) => [i.dataset.c, i.value.trim()]))));
+  $("[data-save]", box).onclick = () => onSave($$("tr", tb).map((tr) => Object.fromEntries($$("input,select", tr).map((i) => [i.dataset.c, i.value.trim()]))));
 }
 
 function setores(box, { S }, again) {
@@ -113,16 +118,17 @@ function usuarios(box, { S }, again) {
 }
 
 const CAD = {
-  maquinas: { t: "Máquinas", cols: [["codigo", "Código"], ["descricao", "Descrição"], ["setor", "Setor"], ["custo_hora", "Custo hora (R$/h)", "num"]], numk: "custo_hora" },
-  pecas: { t: "Peças", cols: [["codigo", "Código"], ["descricao", "Descrição"], ["custo_unit", "Custo unitário (R$)", "num"]], numk: "custo_unit" },
+  maquinas: { t: "Máquinas", key: "nome", cols: (S) => [["nome", "Nome da máquina"], ["setor", "Setor", "sel", Object.keys(S.cfg.setores || {})], ["custo_hora", "Custo hora (R$/h)", "num"]], numk: "custo_hora" },
+  pecas: { t: "Peças", key: "codigo", cols: () => [["codigo", "Código"], ["descricao", "Descrição"], ["custo_unit", "Custo unitário (R$)", "num"]], numk: "custo_unit" },
 };
 function cadastro(box, { S }, again, chave) {
-  const c = CAD[chave], lista = S.cfg[chave] || [];
+  const c = { ...CAD[chave], cols: CAD[chave].cols(S) }, K = c.key;
+  const lista = (S.cfg[chave] || []).map((x) => (K === "nome" && !x.nome ? { ...x, nome: x.descricao || x.codigo } : x));
   box.innerHTML = alerta("info", `Usado para preencher automaticamente os custos da RNC. Importe uma planilha (.xlsx/.csv) com as colunas: ${c.cols.map((x) => `<b>${x[1]}</b>`).join(", ")} — ou edite a tabela.`) +
     card(`<div class="field"><label>Importar planilha</label><input type="file" id="imp" accept=".xlsx,.xls,.csv"></div>`) + card(grade(c.cols, lista), c.t);
   const normal = (rows) => {
     const vistos = new Set(), out = [];
-    for (const r of rows) { const cod = String(r.codigo ?? "").trim(); if (!cod || vistos.has(cod)) continue; vistos.add(cod);
+    for (const r of rows) { const cod = String(r[K] ?? "").trim(); if (!cod || vistos.has(cod)) continue; vistos.add(cod);
       out.push(Object.fromEntries(c.cols.map(([k, , t]) => [k, t === "num" ? num(r[k]) : String(r[k] ?? "").trim()]))); }
     return out;
   };
@@ -134,11 +140,11 @@ function cadastro(box, { S }, again, chave) {
       const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
       const sem = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z]/g, "");
       const mapa = {}; for (const [k, t] of c.cols) mapa[sem(t)] = k, mapa[sem(k)] = k;
-      mapa.custo = c.numk; mapa.valor = c.numk; mapa.custohora = c.numk; mapa.descricao = "descricao";
+      mapa.custo = c.numk; mapa.valor = c.numk; mapa.custohora = c.numk; if (K === "nome") { mapa.maquina = "nome"; mapa.descricao = "nome"; } else mapa.descricao = "descricao";
       const rows = raw.map((r) => { const o = {}; for (const [k, v] of Object.entries(r)) { const kk = mapa[sem(k)] || Object.entries(mapa).find(([m]) => sem(k).startsWith(m))?.[1]; if (kk && o[kk] === undefined) o[kk] = v; } return o; });
-      if (!rows.some((r) => r.codigo)) return toast("Coluna 'Código' não encontrada na planilha.");
-      const atual = Object.fromEntries(lista.map((x) => [x.codigo, x]));
-      for (const x of normal(rows)) atual[x.codigo] = x;
+      if (!rows.some((r) => r[K])) return toast(`Coluna '${c.cols[0][1]}' não encontrada na planilha.`);
+      const atual = Object.fromEntries(lista.map((x) => [x[K], x]));
+      for (const x of normal(rows)) atual[x[K]] = x;
       await salvarCfg(chave, Object.values(atual), again, `${rows.length} linha(s) importadas.`);
     } catch (err) { toast("Não foi possível ler a planilha: " + err.message); }
   };
