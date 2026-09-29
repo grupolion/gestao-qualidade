@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260929i";
+import * as db from "./db.js?v=20260929j";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929i";
-import { paginaAdmin } from "./admin.js?v=20260929i";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929j";
+import { paginaAdmin } from "./admin.js?v=20260929j";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -169,12 +169,32 @@ async function iniciar() {
 
 // ---------------- Visão geral ----------------
 function filtroPeriodo(el, chave) {
-  const f = (S.filtros[chave] ||= { de: addDias(hoje(), -365), ate: hoje(), setor: "" });
-  return { f, html: row("c3", idate("de", "Data inicial", f.de), idate("ate", "Data final", f.ate),
-    isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" })) };
+  const f = (S.filtros[chave] ||= { modo: "intervalo", de: addDias(hoje(), -365), ate: hoje(), setor: "" });
+  f.modo ||= "intervalo";
+  const MODOS = [["intervalo", "Intervalo de datas"], ["ano", "Ano"], ["mes", "Mês/ano"], ["dia", "Dia"]];
+  const anos = []; for (let y = +hoje().slice(0, 4); y >= +hoje().slice(0, 4) - 10; y--) anos.push(String(y));
+  const selModo = `<div class="field"><label>Período</label><select data-k="modo">${MODOS.map(([v, t]) => `<option value="${v}" ${v === f.modo ? "selected" : ""}>${t}</option>`).join("")}</select></div>`;
+  let campos;
+  if (f.modo === "ano") campos = `<div class="field"><label>Ano</label><select data-k="ano">${anos.map((y) => `<option ${y === f.de.slice(0, 4) ? "selected" : ""}>${y}</option>`).join("")}</select></div>`;
+  else if (f.modo === "mes") campos = `<div class="field"><label>Mês/ano</label><input type="month" data-k="mes" value="${f.de.slice(0, 7)}"></div>`;
+  else if (f.modo === "dia") campos = idate("dia", "Dia", f.de);
+  else campos = idate("de", "Data inicial", f.de) + idate("ate", "Data final", f.ate);
+  return { f, html: `<div class="row c4 keep2">${selModo}${campos}${isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" })}</div>` };
+}
+// converte a escolha (ano / mês / dia) em de–ate
+function ajustarPeriodo(f, k, v) {
+  const fimMes = (ym) => { const [y, m] = ym.split("-").map(Number); return `${ym}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`; };
+  if (k === "modo") { const base = f.ate || hoje();
+    if (v === "ano") { f.de = base.slice(0, 4) + "-01-01"; f.ate = base.slice(0, 4) + "-12-31"; }
+    else if (v === "mes") { f.de = base.slice(0, 7) + "-01"; f.ate = fimMes(base.slice(0, 7)); }
+    else if (v === "dia") { f.de = f.ate = base; } }
+  else if (k === "ano" && v) { f.de = v + "-01-01"; f.ate = v + "-12-31"; }
+  else if (k === "mes" && v) { f.de = v + "-01"; f.ate = fimMes(v); }
+  else if (k === "dia" && v) { f.de = f.ate = v; }
 }
 function ligarFiltros(el, f, cb) {
-  $$("[data-k]", el).forEach((i) => (i.onchange = () => { f[i.dataset.k] = i.type === "checkbox" ? i.checked : i.value; cb(); }));
+  $$("[data-k]", el).forEach((i) => (i.onchange = () => { const v = i.type === "checkbox" ? i.checked : i.value;
+    if (["modo", "ano", "mes", "dia"].includes(i.dataset.k)) ajustarPeriodo(f, i.dataset.k, v); else f[i.dataset.k] = v; if (i.dataset.k === "modo") f.modo = v; cb(); }));
 }
 function paginaGeral(el) {
   const { f, html } = filtroPeriodo(el, "painel");
@@ -231,12 +251,13 @@ function painel(el, f) {
   const top = (pares) => pares.filter((x) => x[1] > 0).slice(0, 10);
   // eixo temporal (mês a mês ou ano a ano)
   const per = (r) => String(r.data || "").slice(0, visao === "a" ? 4 : visao === "d" ? 10 : 7);
-  let PER = [...new Set(R.map(per).filter(Boolean))].sort();
-  if (visao === "d" && PER.length) { // dia a dia: todos os dias do período (inclusive sem registros)
-    const ini = f.de || PER[0], fim = f.ate || PER[PER.length - 1]; const dias = [];
-    for (let d = ini; d <= fim && dias.length < 800; d = addDias(d, 1)) dias.push(d);
-    if (dias.length) PER = dias;
-  }
+  // eixo = exatamente o período do filtro (inclui períodos sem registros), em ordem cronológica
+  const PER = [];
+  { const ini = f.de, fim = f.ate;
+    if (visao === "d") for (let d = ini; d <= fim && PER.length < 1100; d = addDias(d, 1)) PER.push(d);
+    else if (visao === "m") { let [y, m] = ini.slice(0, 7).split("-").map(Number); const fimM = fim.slice(0, 7);
+      for (let k = `${y}-${String(m).padStart(2, "0")}`; k <= fimM; ) { PER.push(k); m++; if (m > 12) { m = 1; y++; } k = `${y}-${String(m).padStart(2, "0")}`; } }
+    else for (let y = +ini.slice(0, 4); y <= +fim.slice(0, 4); y++) PER.push(String(y)); }
   PER.sort(); // ordem cronológica (ISO AAAA-MM-DD)
   const variosAnos = new Set(PER.map((p) => p.slice(0, 4))).size > 1;
   const lblPer = PER.map((p) => visao === "d" ? p.slice(8, 10) + "/" + p.slice(5, 7) + (variosAnos ? "/" + p.slice(2, 4) : "")

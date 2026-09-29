@@ -1,6 +1,6 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260929i";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260929i";
+import * as db from "./db.js?v=20260929j";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260929j";
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
