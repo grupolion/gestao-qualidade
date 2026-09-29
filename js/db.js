@@ -67,7 +67,7 @@ export async function sessaoAtual() {
   if (_ativa && !_dek) { await sb.auth.signOut(); return null; } // força novo login para liberar a chave
   return p;
 }
-async function meuPerfil() {
+export async function meuPerfil() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
   const p = chk(await sb.from("perfis").select("*").eq("id", user.id).maybeSingle());
@@ -258,6 +258,18 @@ export async function recuperarComMestra(mestra, senhaAtual) {
   const { error } = await sb.auth.signInWithPassword({ email: user.email, password: senhaAtual });
   if (error) { _dek = null; throw new Error("Senha atual incorreta."); }
   await embrulharPara(user.id, senhaAtual); await K.guardarLocal(user.id, _dek);
+}
+// Confere a chave mestra (sem alterar nada). Lança erro se estiver incorreta.
+export async function verificarMestra(mestra) {
+  const reg = chk(await sb.from("chaves").select("*").eq("id", "mestra").maybeSingle());
+  if (!reg) throw new Error("A criptografia não está ativa — ative-a em 🔒 Segurança para usar esta função.");
+  try { await K.desembrulhar(reg, mestra); } catch { throw new Error("Chave mestra incorreta."); }
+}
+// Apaga definitivamente todos os apontamentos/RNCs e ações (fotos saem junto, em cascata)
+export async function apagarTodosDados(mestra) {
+  await verificarMestra(mestra);
+  chk(await sb.from("acoes").delete().neq("id", ""));
+  chk(await sb.from("rnc").delete().neq("id", ""));
 }
 export async function usuariosSemChave() {
   if (!_ativa) return [];

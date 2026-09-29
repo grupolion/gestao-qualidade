@@ -2,7 +2,7 @@
 import * as db from "./db.js";
 import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js";
 
-const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Peças", "Ficha técnica", "🔒 Segurança"];
+const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Peças", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
 
 export function paginaAdmin(el, ctx) {
@@ -11,7 +11,7 @@ export function paginaAdmin(el, ctx) {
   $$("[data-t]", el).forEach((b) => (b.onclick = () => { aba = +b.dataset.t; paginaAdmin(el, ctx); }));
   const box = $("#ad");
   const again = async () => { await ctx.recarregarCfg(); paginaAdmin(el, ctx); };
-  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), (b, c, a) => cadastro(b, c, a, "pecas"), fichaTec, seguranca][aba](box, ctx, again);
+  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), (b, c, a) => cadastro(b, c, a, "pecas"), fichaTec, seguranca, dados][aba](box, ctx, again);
 }
 const salvarCfg = async (k, v, again, msg = "Salvo.") => {
   try { await db.salvarConfig(k, v); toast(msg); await again(); } catch (e) { toast("Erro: " + e.message); }
@@ -180,6 +180,43 @@ function fichaTec(box) {
   };
 }
 void brl;
+
+// ---------- Dados: excluir apontamentos incorretos / apagar tudo ----------
+async function dados(box) {
+  box.innerHTML = `<div class="caption">Carregando…</div>`;
+  const [R, A] = await Promise.all([db.listar("rnc"), db.listar("acoes")]);
+  const lin = R.sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  box.innerHTML = card(`<div class="ttl">Excluir apontamento incorreto</div>
+    <div class="caption">Somente o administrador. O registro (com fotos e ações vinculadas) vai para a lixeira do banco.</div>
+    ${inp("busca", "Buscar", "", { id2: "d-q", ph: "Número, setor ou descrição" })}
+    <div class="tbl-wrap" style="max-height:420px"><table><thead><tr><th>Nº</th><th>Data</th><th>Setor</th><th>Status</th><th>Descrição</th><th></th></tr></thead><tbody id="d-tb">
+    ${lin.map((r) => `<tr data-q="${esc(`${r.id} ${r.setor_origem || ""} ${r.descricao || ""}`.toLowerCase())}"><td>${esc(r.id)}</td><td>${esc(String(r.data || "").split("-").reverse().join("/"))}</td>
+      <td>${esc(r.setor_origem || "")}</td><td>${esc(r.status || "")}</td><td class="wrap">${esc(String(r.descricao || "").slice(0, 80))}</td>
+      <td><button class="btn sm danger" data-del="${esc(r.id)}">🗑 Excluir</button></td></tr>`).join("") || `<tr><td colspan="6">Nenhum registro.</td></tr>`}</tbody></table></div>`) +
+    card(`<div class="ttl" style="color:var(--err)">⚠️ Apagar TODOS os dados de apontamentos e RNCs</div>
+    <div class="alert warn">Apaga definitivamente <b>${R.length} RNC(s)</b>, <b>${A.length} ação(ões)</b> e as fotos. Cadastros (setores, usuários, máquinas, peças, ficha técnica) são mantidos. <b>Não há como desfazer.</b></div>` +
+    row("c2", inp("mestra", "Chave mestra da criptografia", "", { type: "password", id2: "d-m" }) + inp("conf", 'Digite APAGAR para confirmar', "", { id2: "d-c" })) +
+    `<div class="btnrow"><button class="btn danger" id="d-all">🗑 Apagar todos os dados</button></div><div id="d-msg"></div>`);
+  $("#d-q").oninput = (e) => { const q = e.target.value.toLowerCase(); $$("#d-tb tr[data-q]").forEach((tr) => (tr.style.display = tr.dataset.q.includes(q) ? "" : "none")); };
+  const vinc = (id) => A.filter((a) => a.rnc_id === id);
+  $$("[data-del]", box).forEach((b) => (b.onclick = async () => {
+    const id = b.dataset.del, n = vinc(id).length;
+    if (!(await confirmar(`Excluir ${id}${n ? ` e ${n} ação(ões) vinculada(s)` : ""}? Vai para a lixeira.`))) return;
+    try { const u = (await db.meuPerfil())?.login || "admin";
+      for (const a of vinc(id)) await db.excluir("acoes", a.id, u);
+      await db.excluir("rnc", id, u); toast(`${id} excluída.`); dados(box);
+    } catch (e) { toast("Erro: " + e.message, "⚠️"); }
+  }));
+  $("#d-all").onclick = async () => {
+    const m = $("#d-m").value, c = $("#d-c").value.trim().toUpperCase(), msg = $("#d-msg");
+    if (c !== "APAGAR") { msg.innerHTML = alerta("error", "Digite APAGAR no campo de confirmação."); return; }
+    if (!m) { msg.innerHTML = alerta("error", "Informe a chave mestra."); return; }
+    try { await db.verificarMestra(m); } catch (e) { msg.innerHTML = alerta("error", esc(e.message)); return; }
+    if (!(await confirmar("Última confirmação: apagar TODOS os apontamentos, RNCs, ações e fotos?"))) return;
+    try { msg.innerHTML = alerta("info", "Apagando…"); await db.apagarTodosDados(m); toast("Todos os dados foram apagados."); dados(box); }
+    catch (e) { msg.innerHTML = alerta("error", esc(e.message)); }
+  };
+}
 
 // ---------- Segurança: chave mestra ----------
 async function seguranca(box) {

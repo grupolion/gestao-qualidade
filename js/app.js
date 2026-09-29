@@ -159,37 +159,85 @@ function painel(el, f) {
   const R = noPeriodo(f); const ids = new Set(R.map((r) => r.id));
   const A = S.acoes.filter((a) => ids.has(a.rnc_id));
   const verif = R.filter((r) => ["Sim", "Não"].includes(r.eficaz));
-  const k = [metric("RNCs no período", R.length), metric("Tratativas em aberto", R.filter((r) => PDCA.includes(r.status)).length),
-    metric("Peças não conformes", R.reduce((s, r) => s + num(r.qtd_nc), 0).toLocaleString("pt-BR")), metric("Custo da não qualidade", brl(R.reduce((s, r) => s + custo(r), 0)))];
-  const k2 = [metric("Reincidências", R.filter((r) => r.reincidente === "Sim").length), metric("Ações pendentes", A.filter((a) => ["Pendente", "Em andamento"].includes(a.status)).length),
-    metric("Ações atrasadas", A.filter(atrasada).length), metric("Eficácia das ações", verif.length ? Math.round(100 * verif.filter((r) => r.eficaz === "Sim").length / verif.length) + "%" : "—")];
-  const aba = S.filtros.painelSub || 0;
-  const abas = ["Ocorrências e causas", "Evolução e custos", "Situação e atrasos"];
+  // componentes de custo
+  const cHH = (r) => num(r.horas_homem) * num(r.custo_hora);
+  const cHM = (r) => num(r.horas_maquina) * num(r.custo_hora_maquina);
+  const cRef = (r) => num(r.custo_material);
+  const hTot = (r) => num(r.horas_homem);
+  const soma = (fn) => R.reduce((s, r) => s + fn(r), 0);
+  const hfmt = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " h";
+  const k = [metric("RNCs no período", R.length), metric("Peças não conformes", soma((r) => num(r.qtd_nc)).toLocaleString("pt-BR")),
+    metric("Custo com retrabalho", brl(soma(custo))), metric("Custo h/homem", brl(soma(cHH))),
+    metric("Custo refugo (peças)", brl(soma(cRef))), metric("Horas de retrabalho", hfmt(soma(hTot)))];
+  const k2 = [metric("Tratativas em aberto", R.filter((r) => PDCA.includes(r.status)).length), metric("Reincidências", R.filter((r) => r.reincidente === "Sim").length),
+    metric("Ações pendentes", A.filter((a) => ["Pendente", "Em andamento"].includes(a.status)).length), metric("Ações atrasadas", A.filter(atrasada).length),
+    metric("Custo h/máquina", brl(soma(cHM))), metric("Eficácia das ações", verif.length ? Math.round(100 * verif.filter((r) => r.eficaz === "Sim").length / verif.length) + "%" : "—")];
+  const aba = Math.min(S.filtros.painelSub || 0, 3);
+  const visao = S.filtros.painelVisao || "m";
+  const abas = ["Custos e horas", "Produtos e peças", "Problemas e setores", "Situação e atrasos"];
   el.innerHTML = `<div class="metrics">${k.join("")}</div>` + exp("Outros indicadores", `<div class="metrics">${k2.join("")}</div>`) +
     `<div class="tabs">${abas.map((t, i) => `<button class="${i === aba ? "on" : ""}" data-s="${i}">${t}</button>`).join("")}</div>` +
-    (R.length ? `<div class="row c2" id="g-ch"></div>` : alerta("info", "Sem dados no período.")) + `<div class="caption">Atualizado às ${hora()}</div>`;
+    (aba < 3 ? `<div class="tabs" style="margin-top:-.4rem">${[["m", "📅 Mês a mês"], ["a", "📆 Ano a ano"]].map(([v, t]) => `<button class="${v === visao ? "on" : ""}" data-v="${v}">${t}</button>`).join("")}</div>` : "") +
+    (R.length ? `<div class="row c2" id="g-ch"></div>` : alerta("info", "Sem dados no período.")) +
+    `<div class="caption">Top 10 = soma do período filtrado. Atualizado às ${hora()}</div>`;
   $$("[data-s]", el).forEach((b) => (b.onclick = () => { S.filtros.painelSub = +b.dataset.s; painel(el, f); }));
+  $$("[data-v]", el).forEach((b) => (b.onclick = () => { S.filtros.painelVisao = b.dataset.v; painel(el, f); }));
   if (!R.length) return;
+  if (aba === 1 && !fichaCache) { ficha().then(() => painel(el, f)); return; }
   const box = $("#g-ch");
-  const bloco = (t) => { const d = document.createElement("div"); d.className = "card"; d.innerHTML = `<div class="ttl">${t}</div><div class="chart"><canvas></canvas></div>`; box.append(d); return d.querySelector("canvas"); };
+  const bloco = (t, largo) => { const d = document.createElement("div"); d.className = "card"; if (largo) d.style.gridColumn = "1 / -1";
+    d.innerHTML = `<div class="ttl">${t}</div><div class="chart"><canvas></canvas></div>`; box.append(d); return d.querySelector("canvas"); };
   const conta = (arr, fk, fv = () => 1) => { const m = {}; arr.forEach((x) => { const kk = fk(x) || "—"; m[kk] = (m[kk] || 0) + fv(x); }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
   const barh = (cv, pares, lbl, fmt) => grafico(cv, { type: "bar", data: { labels: pares.map((p) => p[0]), datasets: [{ label: lbl, data: pares.map((p) => p[1]), backgroundColor: BRAND }] },
     options: { indexAxis: "y", plugins: { legend: { display: false }, tooltip: fmt ? { callbacks: { label: (c) => fmt(c.raw) } } : {} } } });
+  const top = (pares) => pares.filter((x) => x[1] > 0).slice(0, 10);
+  // eixo temporal (mês a mês ou ano a ano)
+  const per = (r) => String(r.data || "").slice(0, visao === "a" ? 4 : 7);
+  const PER = [...new Set(R.map(per).filter(Boolean))].sort();
+  const lblPer = PER.map((p) => p.split("-").reverse().join("/"));
+  const serie = (fn, arr = R) => PER.map((p) => arr.filter((r) => per(r) === p).reduce((s, r) => s + fn(r), 0));
+  const CORES = [BRAND, "#1f2a44", "#e8a33d", "#3a8f5c", "#7b5ea7", "#c0504d", "#2e86ab", "#8c8c8c", "#b5651d", "#5d9b9b"];
+  const temporal = (titulo, datasets, fmt, empilhado) => grafico(bloco(titulo, true), { type: "bar", legend: datasets.length > 1,
+    data: { labels: lblPer, datasets: datasets.map((d, i) => ({ backgroundColor: CORES[i % 10], borderColor: CORES[i % 10], ...d })) },
+    options: { plugins: { legend: { display: datasets.length > 1 }, tooltip: fmt ? { callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.raw)}` } } : {} },
+      scales: { x: { stacked: !!empilhado }, y: { stacked: !!empilhado, beginAtZero: true }, ...(datasets.some((d) => d.yAxisID === "y1") ? { y1: { position: "right", beginAtZero: true, grid: { display: false } } } : {}) } } });
+  // séries por categoria (top 10 no período) ao longo do tempo
+  const porCategoria = (titulo, fk, fv, fmt) => {
+    const cats = top(conta(R, fk, fv)).map((x) => x[0]);
+    temporal(titulo, cats.map((c) => ({ label: c, data: serie(fv, R.filter((r) => (fk(r) || "—") === c)) })), fmt, true);
+  };
+  const qtd = (r) => num(r.qtd_nc);
   if (aba === 0) {
-    barh(bloco("RNCs por setor de origem"), conta(R, (r) => r.setor_origem), "RNCs");
-    const p = conta(R, (r) => r.tipo_nc, (r) => num(r.qtd_nc)).slice(0, 12); const tot = p.reduce((s, x) => s + x[1], 0) || 1; let ac = 0;
-    grafico(bloco("Pareto de defeitos (peças NC)"), { type: "bar", legend: true, data: { labels: p.map((x) => x[0]), datasets: [
+    temporal("Custo com retrabalho (R$)", [{ label: "H/homem", data: serie(cHH) }, { label: "H/máquina", data: serie(cHM) }, { label: "Refugo (peças)", data: serie(cRef) }], brl, true);
+    temporal("Custo h/homem (R$)", [{ label: "Custo h/homem", data: serie(cHH) }], brl);
+    temporal("Custo refugo – peças (R$)", [{ label: "Refugo", data: serie(cRef) }], brl);
+    temporal("Horas totais de retrabalho", [{ label: "Horas homem", data: serie(hTot) }, { label: "Horas máquina", data: serie((r) => num(r.horas_maquina)) }], hfmt);
+  } else if (aba === 1) {
+    const fp = fichaCache.produtos || {};
+    const prod = (r) => r.produto ? (fp[r.produto]?.nome ? `${r.produto} - ${fp[r.produto].nome}` : r.produto).slice(0, 45) : "";
+    const Rp = R.filter((r) => r.produto);
+    barh(bloco("NC por produto – Top 10 (un)"), top(conta(Rp, prod, qtd)), "Unidades NC");
+    // peça: código/descrição informados na RNC + partes substituídas
+    const pecas = [];
+    R.forEach((r) => {
+      if (r.cod_peca || r.desc_peca) pecas.push({ r, k: [r.cod_peca, r.desc_peca].filter(Boolean).join(" - ").slice(0, 45), q: qtd(r) });
+      (r.pecas_subst || []).forEach((p) => pecas.push({ r, k: [p.codigo, p.nome].filter(Boolean).join(" - ").slice(0, 45), q: num(p.qtd) }));
+    });
+    const tp = top(conta(pecas, (x) => x.k, (x) => x.q));
+    barh(bloco("NC por peça – Top 10 (un)"), tp, "Unidades");
+    porCategoria("NC por produto ao longo do tempo (Top 10, un)", prod, qtd);
+    const cats = tp.map((x) => x[0]);
+    temporal("NC por peça ao longo do tempo (Top 10, un)", cats.map((c) => ({ label: c, data: PER.map((p) => pecas.filter((x) => x.k === c && per(x.r) === p).reduce((s, x) => s + x.q, 0)) })), null, true);
+  } else if (aba === 2) {
+    barh(bloco("NC por tipo de problema – Top 10 (ocorrências)"), top(conta(R, (r) => r.tipo_nc)), "RNCs");
+    barh(bloco("NC por setor de origem (ocorrências)"), conta(R, (r) => r.setor_origem), "RNCs");
+    porCategoria("Tipo de problema ao longo do tempo (Top 10)", (r) => r.tipo_nc, () => 1);
+    porCategoria("Setores ao longo do tempo", (r) => r.setor_origem, () => 1);
+    const p = top(conta(R, (r) => r.tipo_nc, qtd)); const tot = p.reduce((s, x) => s + x[1], 0) || 1; let ac = 0;
+    grafico(bloco("Pareto de defeitos – Top 10 (peças NC)", true), { type: "bar", legend: true, data: { labels: p.map((x) => x[0]), datasets: [
       { label: "Peças", data: p.map((x) => x[1]), backgroundColor: BRAND, yAxisID: "y" },
       { label: "% acumulado", type: "line", data: p.map((x) => ((ac += x[1]) / tot) * 100), borderColor: "#1f2a44", yAxisID: "y1" }] },
       options: { plugins: { legend: { display: true } }, scales: { y1: { position: "right", min: 0, max: 100, grid: { display: false }, ticks: { callback: (v) => v + "%" } }, x: { ticks: { maxRotation: 35, minRotation: 35 } } } } });
-  } else if (aba === 1) {
-    const m = {}; R.forEach((r) => { const mm = String(r.data).slice(0, 7); (m[mm] ||= [0, 0]); m[mm][0]++; m[mm][1] += custo(r); });
-    const ms = Object.keys(m).sort();
-    grafico(bloco("Evolução mensal"), { type: "bar", legend: true, data: { labels: ms.map((x) => x.split("-").reverse().join("/")), datasets: [
-      { label: "RNCs", data: ms.map((x) => m[x][0]), backgroundColor: BRAND, yAxisID: "y" },
-      { label: "Custo (R$)", type: "line", data: ms.map((x) => m[x][1]), borderColor: "#1f2a44", yAxisID: "y1" }] },
-      options: { plugins: { legend: { display: true } }, scales: { y1: { position: "right", grid: { display: false } } } } });
-    barh(bloco("Custo da não qualidade por setor (R$)"), conta(R, (r) => r.setor_origem, custo).filter((x) => x[1] > 0), "Custo", brl);
   } else {
     barh(bloco("Status das RNCs"), conta(R, (r) => r.status), "RNCs");
     const at = S.acoes.filter((a) => atrasada(a) && (!a.rnc_id || ids.has(a.rnc_id))).sort((a, b) => a.quando.localeCompare(b.quando));
@@ -499,7 +547,8 @@ function paginaKanban(el) {
           <button class="btn sm block" data-card="${esc(r.id)}">Abrir</button></div>`; }).join("") : `<div class="caption" style="margin-top:.75rem">Nenhuma tratativa nesta etapa.</div>`) + `</div>`;
     }).join("")}</div><div class="caption">Atualizado às ${hora()}</div>`;
   ligarFiltros($(".card", el), f, () => paginaKanban(el));
-  $$("[data-card]", el).forEach((b) => (b.onclick = () => cartao(b.dataset.card)));
+  $$("[data-card]", el).forEach((b) => (b.onclick = async () => { b.disabled = true; const t = b.textContent; b.textContent = "Abrindo…";
+    try { await cartao(b.dataset.card); } catch (e) { toast("Erro ao abrir: " + e.message, "⚠️"); } finally { b.disabled = false; b.textContent = t; } }));
 }
 async function mover(r, novo) {
   if (novo === "Finalizada") {
@@ -511,7 +560,7 @@ async function mover(r, novo) {
 }
 async function cartao(id) {
   const r = S.rnc.find((x) => x.id === id); if (!r) return;
-  const A = S.acoes.filter((a) => a.rnc_id === id), F = await db.listarFotos(id);
+  const A = S.acoes.filter((a) => a.rnc_id === id); let F = []; try { F = await db.listarFotos(id); } catch (e) { console.warn(e); }
   const kv = [["Data", fdate(r.data)], ["Setor de origem", r.setor_origem], ["Detectado em", r.setor_detectado], ["Turno", r.turno], ["Emitente", nome(r.emitente)], ["Responsável", nome(r.responsavel)],
     ["Classificação", r.origem], ["Cliente/Fornecedor", r.cliente], ["Peça", `${r.cod_peca || ""} ${r.desc_peca || ""}`], ["OP", r.op], ["Tipo de NC", r.tipo_nc], ["Qtd NC / lote", `${r.qtd_nc || 0} / ${r.qtd_lote || 0}`],
     ["Gravidade", r.gravidade], ["Reincidente", r.reincidente], ["Custo total", brl(custo(r))], ["Disposição", r.disposicao]];
