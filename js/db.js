@@ -1,7 +1,7 @@
 // Camada de dados (Supabase) — equivalente ao storage.py do app Streamlit.
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import * as K from "./cripto.js";
-import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js";
+import * as K from "./cripto.js?v=20260929b";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20260929b";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, storageKey: "gq-sessao",
@@ -122,6 +122,7 @@ export async function salvarConfig(chave, valor) {
 
 // ---------- ficha técnica ----------
 let _ficha = null;
+export function limparCache() { _ficha = null; }
 export async function carregarFicha(forcar = false) {
   if (_ficha && !forcar) return _ficha;
   const rows = []; let de = 0;

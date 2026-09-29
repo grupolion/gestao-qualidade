@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js";
+import * as db from "./db.js?v=20260929b";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js";
-import { paginaAdmin } from "./admin.js";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929b";
+import { paginaAdmin } from "./admin.js?v=20260929b";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -80,11 +80,19 @@ function shell() {
   $("#bt-sair").onclick = async () => { await db.sair(); location.reload(); };
   $("#bt-senha").onclick = trocarSenha;
 }
-function navegar(p, extra) {
+// a cada navegação: limpa caches em memória e busca tudo de novo no banco
+let _nav = 0;
+async function navegar(p, extra) {
   if (S.edit && S.pagina !== p) guardarRascunho();
   S.pagina = p; S.edit = extra || null;
   $$("[data-nav]").forEach((b) => b.classList.toggle("on", b.dataset.nav === p));
-  render(); window.scrollTo(0, 0);
+  const n = ++_nav, pg = $("#page");
+  if (pg) pg.innerHTML = `<div class="loading">Atualizando dados…</div>`;
+  window.scrollTo(0, 0);
+  fichaCache = null; db.limparCache();
+  try { S.cfg = await db.carregarConfig(); await carregar(); }
+  catch (e) { console.error(e); toast("Falha ao atualizar: " + e.message, "⚠️"); }
+  if (n === _nav) render();
 }
 function guardarRascunho() { if (S.edit?.rec) S.draft = { tipo: S.edit.tipo, rec: JSON.parse(JSON.stringify(S.edit.rec)), pagina: S.pagina }; }
 function render() {
@@ -136,7 +144,6 @@ async function iniciar() {
   S.cfg = await db.carregarConfig();
   await carregar();
   shell(); render();
-  setTimeout(() => ficha(), 1500); // pré-carrega a ficha técnica em segundo plano
   clearInterval(S.timer);
   S.timer = setInterval(async () => {
     if (S.edit || document.querySelector(".modal") || document.hidden || S.pagina === ADMIN_MENU) return;
@@ -316,7 +323,7 @@ async function abrirRnc(id, volta) {
   navegar(MENU[1], { tipo: "rnc", rec: r, volta: volta || S.pagina, fotos: await db.listarFotos(id) });
 }
 function retomar() { const d = S.draft; S.draft = null; navegar(d.pagina, { tipo: d.tipo, rec: d.rec, volta: d.pagina }); }
-function fechar() { const v = S.edit?.volta || S.pagina; S.edit = null; S.draft = null; carregar().then(() => navegar(v)); }
+function fechar() { const v = S.edit?.volta || S.pagina; S.edit = null; S.draft = null; navegar(v); }
 
 // ---------------- Editor RNC ----------------
 let fichaCache = null;
