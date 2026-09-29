@@ -12,6 +12,8 @@ export const RNC_STATUS = [APONTADO, ...PDCA, ...FINAIS];
 const LEGADO = { "Aberta": PDCA[0], "Em análise": PDCA[0], "Aguardando ações": PDCA[1], "Em andamento": PDCA[1],
   "Verificação de eficácia": PDCA[2], "Fechada": "Finalizada", "Encerrada": "Finalizada" };
 export const ACAO_STATUS = ["Pendente", "Em andamento", "Concluída", "Cancelada"];
+const arr = (v) => Array.isArray(v) ? v : v && typeof v === "object" ? Object.keys(v).sort().map((k) => v[k]) : v ? [String(v)] : [];
+const CLI_ORIG = ["Fornecedor", "Cliente / Assistência técnica"];
 const ORIGENS = ["Interna (processo)", "Fornecedor", "Cliente / Assistência técnica", "Auditoria", "Inspeção de recebimento"];
 const DISPOSICAO = ["Retrabalho", "Refugo / Sucata", "Uso condicional (concessão)", "Devolução ao fornecedor", "Reclassificação", "Em avaliação"];
 const GRAVIDADE = ["Baixa", "Média", "Alta", "Crítica"];
@@ -336,10 +338,8 @@ async function editorRnc(el) {
     h += card(row("c4 keep2", idate("data", "Data *", r.data, o), isel("setor_origem", "Setor de origem (gerador) *", setUser(), r.setor_origem, { ...o, ph: "Selecione…" }),
         isel("setor_detectado", "Setor onde foi detectada", [...SETORES(), "Inspeção final", "Expedição", "Cliente"], r.setor_detectado, { ...o, ph: "" }), isel("turno", "Turno", TURNOS, r.turno, { ...o, ph: "" })) +
       row("c4 keep2", isel("emitente", "Emitente", pessoas(), r.emitente, { dis: true }), isel("status", "Etapa", RNC_STATUS, r.status, { dis: true }),
-        isel("origem", "Classificação / origem", ORIGENS, r.origem, { ...o, ph: "" }), inp("cliente", "Cliente / Fornecedor", r.cliente, o)) +
-      row("c4 keep2", inp("op", "Ordem de produção (OP)", r.op, o),
-        (S.cfg.pecas || []).length ? icombo("cod_peca", "Peça", S.cfg.pecas.map((p) => [p.codigo, `${p.codigo} — ${p.descricao}`]), r.cod_peca, o) : inp("cod_peca", "Código da peça", r.cod_peca, o),
-        inp("desc_peca", "Descrição da peça", r.desc_peca, o), isel("tipo_nc", "Tipo de não conformidade", defeitos, r.tipo_nc, { ...o, ph: defeitos.length ? "Selecione…" : "Selecione o setor" })) +
+        isel("origem", "Classificação / origem", ORIGENS, r.origem, { ...o, ph: "" }), inp("cliente", "Cliente / Fornecedor", CLI_ORIG.includes(r.origem) ? r.cliente : "", { ...o, dis: o.dis || !CLI_ORIG.includes(r.origem), ph: CLI_ORIG.includes(r.origem) ? "" : "Selecione Fornecedor ou Cliente" })) +
+      row("c2", inp("op", "Ordem de produção (OP)", r.op, o), isel("tipo_nc", "Tipo de não conformidade", defeitos, r.tipo_nc, { ...o, ph: defeitos.length ? "Selecione…" : "Selecione o setor" })) +
       row("c4 keep2", inum("qtd_nc", "Qtd NC", r.qtd_nc, o), inum("qtd_lote", "Qtd do lote", r.qtd_lote, o), isel("gravidade", "Gravidade", GRAVIDADE, r.gravidade, { ...o, ph: "" }),
         isel("reincidente", "Reincidente?", ["Não", "Sim"], r.reincidente, o)), "Identificação") +
       card(itxt("descricao", "Descrição do problema (o que, onde, quando, quanto) *", r.descricao, o), "Descrição");
@@ -381,7 +381,7 @@ async function editorRnc(el) {
         + row("w21", itxt("contencao", "Ação de contenção imediata", r.contencao, o), isel("disposicao", "Disposição do material", DISPOSICAO, r.disposicao, { ...o, ph: "" })) +
         row("c1", isel("resp_contencao", "Responsável pela contenção", pessoas(), r.resp_contencao, { ...o, ph: "" })), "P · Planejar — responsável e contenção") +
       exp("Análise de causa — Ishikawa e 5 Porquês", `<div class="row c3">${M6.map(([k, t]) => itxt("ishikawa." + k, t, (r.ishikawa || {})[k], o)).join("")}</div>` +
-        [0, 1, 2, 3, 4].map((i) => inp("porques." + i, `${i + 1}º Por quê?`, (r.porques || [])[i], o)).join("") + itxt("causa_raiz", "Causa raiz identificada", r.causa_raiz, o), r.status === PDCA[0]) +
+        [0, 1, 2, 3, 4].map((i) => inp("porques." + i, `${i + 1}º Por quê?`, arr(r.porques)[i], o)).join("") + itxt("causa_raiz", "Causa raiz identificada", r.causa_raiz, o), r.status === PDCA[0]) +
       exp("D · Plano de ações — execução", tarefas + (r.id ? `<div class="btnrow" style="margin-top:.8rem"><button class="btn" id="e-nacao">+ Adicionar ação</button></div>` : `<div class="caption">Salve a RNC para adicionar ações.</div>`), r.status === PDCA[1]) +
       exp("C · Verificação de eficácia / A · Padronização", row("c4 keep2", isel("eficaz", "Ações foram eficazes?", ["Pendente", "Sim", "Não"], r.eficaz, o), idate("data_verificacao", "Data da verificação", r.data_verificacao, o),
         isel("resp_verificacao", "Responsável verificação", pessoas(), r.resp_verificacao, { ...o, ph: "" }), isel("necessita_nova_rnc", "Necessita nova RNC?", ["Não", "Sim"], r.necessita_nova_rnc || "Não", o)) +
@@ -406,13 +406,14 @@ async function editorRnc(el) {
   void podeAbrir;
 
   // ligações
-  const set = (k, v) => { const p = k.split("."); if (p.length === 1) r[k] = v; else if (p[0] === "porques") { r.porques ||= ["", "", "", "", ""]; r.porques[+p[1]] = v; } else (r[p[0]] ||= {})[p[1]] = v; };
-  const RERENDER = ["setor_origem", "maquina", "produto_inteiro", "qtd_nc"];
+  const set = (k, v) => { const p = k.split("."); if (p.length === 1) r[k] = v; else if (p[0] === "porques") { r.porques = arr(r.porques); while (r.porques.length < 5) r.porques.push(""); r.porques[+p[1]] = v; } else (r[p[0]] ||= {})[p[1]] = v; };
+  const RERENDER = ["origem", "setor_origem", "maquina", "produto_inteiro", "qtd_nc"];
   $$("[data-k]", el).forEach((i) => {
     const ev = i.tagName === "SELECT" || i.type === "checkbox" ? "change" : "input";
     i.addEventListener(ev, () => {
       set(i.dataset.k, i.type === "checkbox" ? i.checked : i.type === "number" ? num(i.value) : i.value);
       if (i.dataset.k === "setor_origem") r.tipo_nc = "";
+      if (i.dataset.k === "origem" && !CLI_ORIG.includes(r.origem)) r.cliente = "";
       if (RERENDER.includes(i.dataset.k) && ev === "change") editorRnc(el);
       else if ($("#e-custo")) $("#e-custo").textContent = brl(custo(r));
     });
@@ -486,10 +487,26 @@ function paginaAcoes(el) {
   const cols = [["id", "Nº"], ["rnc", "RNC"], ["tipo", "Tipo"], ["o_que", "O que", "wrap"], ["quem", "Quem"], ["prazo", "Prazo"], ["status", "Status"], ["atr", "Atrasada"], ["fim", "Concluída em"]];
   const box = $("#a-tab");
   if (!rows.length) return (box.innerHTML = alerta("info", "Nenhuma ação encontrada. Ajuste os filtros ou crie uma nova ação."));
-  box.innerHTML = `<div class="caption">${rows.length} ação(ões) · clique em uma linha para abrir · atualizado ${hora()}</div>` + tabela(cols, rows, { click: true }) +
+  box.innerHTML = termometro(L) + `<div class="caption">${rows.length} ação(ões) · clique em uma linha para abrir · atualizado ${hora()}</div>` + tabela(cols, rows, { click: true }) +
     `<div class="btnrow" style="margin-top:.8rem"><button class="btn" id="a-csv">⬇ Exportar CSV</button></div>`;
   $$("tr[data-i]", box).forEach((t) => (t.onclick = () => abrirAcao(rows[+t.dataset.i].id)));
+  $$("[data-tm]", box).forEach((t) => (t.onclick = () => abrirAcao(t.dataset.tm)));
   $("#a-csv").onclick = () => baixarCSV("acoes.csv", cols, rows);
+}
+function termometro(L) {
+  const hj = new Date(hoje() + "T12:00:00");
+  const ab = L.filter((a) => !["Concluída", "Cancelada"].includes(a.status) && a.quando)
+    .map((a) => ({ a, d: Math.round((hj - new Date(a.quando + "T12:00:00")) / 864e5) }));
+  if (!ab.length) return "";
+  const F = [["No prazo", (d) => d < -7, "#2e7d32"], ["Vence em 7 dias", (d) => d >= -7 && d <= 0, "#f9a825"], ["1–15 dias parada", (d) => d > 0 && d <= 15, "#fb8c00"],
+    ["16–30 dias parada", (d) => d > 15 && d <= 30, "#e53935"], ["+30 dias parada", (d) => d > 30, "#8e0000"]];
+  const cols = F.map(([t, f, c]) => { const it = ab.filter((x) => f(x.d)).sort((x, y) => y.d - x.d);
+    return `<div style="flex:1 1 150px;min-width:150px;border-top:6px solid ${c};background:${c}14;border-radius:.5rem;padding:.5rem">
+      <b style="color:${c}">${t}</b> <span class="caption">(${it.length})</span>` +
+      it.slice(0, 8).map((x) => `<div data-tm="${esc(x.a.id)}" style="cursor:pointer;margin-top:.35rem;padding:.35rem .5rem;background:#fff;border-left:4px solid ${c};border-radius:.35rem;font-size:.8rem">
+        <b>${esc(x.a.id)}</b> · ${x.d > 0 ? x.d + " d atraso" : -x.d + " d restantes"}<br>${esc(String(x.a.o_que || "").slice(0, 50))}<br><span class="caption">${esc(nome(x.a.quem))}</span></div>`).join("") +
+      (it.length > 8 ? `<div class="caption">+${it.length - 8}…</div>` : "") + `</div>`; }).join("");
+  return card(`<div class="ttl">🌡️ Termômetro de tarefas abertas (pelo prazo previsto)</div><div style="display:flex;gap:.6rem;overflow-x:auto">${cols}</div>`);
 }
 function novaAcao(rncId, pai) {
   const rn = S.rnc.find((r) => r.id === rncId);
@@ -565,7 +582,7 @@ async function cartao(id) {
     ["Classificação", r.origem], ["Cliente/Fornecedor", r.cliente], ["Peça", `${r.cod_peca || ""} ${r.desc_peca || ""}`], ["OP", r.op], ["Tipo de NC", r.tipo_nc], ["Qtd NC / lote", `${r.qtd_nc || 0} / ${r.qtd_lote || 0}`],
     ["Gravidade", r.gravidade], ["Reincidente", r.reincidente], ["Custo total", brl(custo(r))], ["Disposição", r.disposicao]];
   const ish = M6.filter(([k]) => (r.ishikawa || {})[k]).map(([k, t]) => `<b>${t}:</b> ${esc(r.ishikawa[k])}`).join("<br>");
-  const pq = (r.porques || []).filter(Boolean);
+  const pq = arr(r.porques).filter(Boolean);
   const i = PDCA.indexOf(r.status);
   const m = modal(`<h3>${esc(r.id)} · ${esc(r.status)}</h3><div class="kv">${kv.map(([k, v]) => `<div><b>${k}</b>${esc(v || "—")}</div>`).join("")}</div>` +
     card(`<b>Descrição</b><p>${esc(r.descricao || "")}</p>${r.contencao ? `<b>Contenção</b><p>${esc(r.contencao)}</p>` : ""}${ish ? `<p><b>Ishikawa</b><br>${ish}</p>` : ""}
