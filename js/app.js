@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260929d";
+import * as db from "./db.js?v=20260929e";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929d";
-import { paginaAdmin } from "./admin.js?v=20260929d";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, confirmar, baixarCSV } from "./ui.js?v=20260929e";
+import { paginaAdmin } from "./admin.js?v=20260929e";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -154,7 +154,10 @@ async function iniciar() {
   S.cfg = await db.carregarConfig();
   await carregar();
   shell(); render();
-  setTimeout(() => ficha(), 800); // pré-carrega a ficha técnica uma vez por sessão
+  // pré-carrega a ficha técnica quando o aparelho estiver ocioso (não disputa com a 1ª tela)
+  (window.requestIdleCallback || ((f) => setTimeout(f, 2500)))(() => ficha(), { timeout: 4000 });
+  // celular: gráficos sem animação (bem mais leve)
+  if (window.Chart && matchMedia("(max-width: 900px), (pointer: coarse)").matches) Chart.defaults.animation = false;
   clearInterval(S.timer);
   try { S.fv = await db.fichaVersao(); } catch {}
   S.timer = setInterval(async () => {

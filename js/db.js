@@ -1,7 +1,7 @@
 // Camada de dados (Supabase) — equivalente ao storage.py do app Streamlit.
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import * as K from "./cripto.js?v=20260929d";
-import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20260929d";
+import * as K from "./cripto.js?v=20260929e";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20260929e";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, storageKey: "gq-sessao",
@@ -165,7 +165,9 @@ export async function listar(col) {
   const out = []; let de = 0;
   for (;;) {
     const lote = chk(await sb.from(col).select("id,dados,versao").order("id").range(de, de + 999));
-    for (const r of lote) out.push({ ...(await decifrarDados(r.dados)), id: r.id, versao: r.versao }); if (lote.length < 1000) break; de += 1000;
+    // decifra o lote em paralelo (no celular, uma por vez era o gargalo)
+    out.push(...(await Promise.all(lote.map(async (r) => ({ ...(await decifrarDados(r.dados)), id: r.id, versao: r.versao })))));
+    if (lote.length < 1000) break; de += 1000;
   }
   return out;
 }
