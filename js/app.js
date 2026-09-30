@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260930-password8";
+import * as db from "./db.js?v=20260930-area2";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20260930-password8";
-import { paginaAdmin } from "./admin.js?v=20260930-password8";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20260930-area2";
+import { paginaAdmin } from "./admin.js?v=20260930-area2";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -42,7 +42,24 @@ const setUser = () => (admin() ? SETORES() : SETORES().filter((s) => (S.user.set
 export const nome = (login) => S.perfis.find((p) => p.login === login)?.nome || login || "";
 const pessoas = () => S.perfis.filter((p) => p.ativo).map((p) => [p.login, `${p.nome} (${p.login})`]);
 const statusDe = (r) => LEGADO[r.status] || r.status || APONTADO;
-export function custo(r) { return num(r.horas_homem) * num(r.custo_hora) + num(r.horas_maquina) * num(r.custo_hora_maquina) + num(r.custo_material); }
+// setores com linha de tempo fixo (custo por m²); taxas podem ser sobrescritas em parametros
+export function processoLinha(setor) {
+  const s = String(setor || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (s.includes("pintura")) return { k: "p", nome: "pintura", param: "valor_m2_pintura", padrao: 79 };
+  if (s.includes("banho") || s.includes("quimic")) return { k: "b", nome: "banho químico", param: "valor_m2_banho", padrao: 24 };
+  return null;
+}
+// área (m²) com a tabela atual de materiais — k: "b" banho (área total) | "p" pintura (tubo externa, chapa total)
+// chave vazia = máquina inteira; "C<cod>" = 1 componente; "M<cod>" = 1 unidade do material
+function areaFicha(prod, chave, k) {
+  const A = S.cfg.area_materiais || {}, L = FT.produtos[prod]?.linhas || [];
+  if (!chave) return L.reduce((s, [, m, q, qc]) => s + q * qc * num(A[m]?.[k]), 0);
+  if (chave[0] === "M") return num(A[chave.slice(1)]?.[k]);
+  const visto = new Set();
+  return L.reduce((s, [c, m, q, , prodRow]) => { if (prodRow || "C" + c !== chave || visto.has(m)) return s; visto.add(m); return s + q * num(A[m]?.[k]); }, 0);
+}
+const fnum = (v) => num(v).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+export function custo(r) { return num(r.horas_homem) * num(r.custo_hora) + num(r.horas_maquina) * num(r.custo_hora_maquina) + num(r.custo_material) + num(r.custo_processo); }
 const atrasada = (a) => !!a.quando && !["Concluída", "Cancelada"].includes(a.status) && a.quando.slice(0, 10) < hoje();
 const visivel = (r) => admin() || (S.user.setores || []).includes(r.setor_origem);
 const rncLbl = (r) => `${r.id} · ${r.setor_origem || ""} · ${r.tipo_nc || (r.descricao || "").slice(0, 40)}`;
@@ -425,6 +442,21 @@ async function editorRnc(el) {
   if (r.produto && FT.produtos[r.produto]) {
     if (!fin) r.custo_material = Math.round((r.produto_inteiro ? FT.produtos[r.produto].valor * num(r.qtd_nc) : (r.pecas_subst || []).reduce((s, p) => s + num(p.qtd) * num(p.valor_unit), 0)) * 100) / 100;
   }
+  // Pintura / Banho químico: linha com tempo fixo → custo = área (m²) × R$/m² (substitui horas e material)
+  const PROC = processoLinha(r.setor_origem);
+  const areaMaq = PROC && r.produto ? areaFicha(r.produto, "", PROC.k) : 0;
+  const pesoMaq = PROC ? num((S.cfg.pesos_maquinas || {})[r.produto]) : 0;
+  if (!fin) {
+    if (PROC) {
+      if (r.metodo_proc !== "peso") r.metodo_proc = "pecas";
+      const tx = num(P[PROC.param]) || PROC.padrao;
+      const area = r.metodo_proc === "peso" ? (pesoMaq ? areaMaq * num(r.peso_retrab) / pesoMaq : 0)
+        : r.produto_inteiro ? areaMaq * num(r.qtd_nc)
+        : (r.pecas_subst || []).reduce((s, p) => s + num(p.qtd) * areaFicha(r.produto, p.chave, PROC.k), 0);
+      r.area_proc = Math.round(area * 1e4) / 1e4; r.valor_m2 = tx; r.custo_processo = Math.round(area * tx * 100) / 100;
+      r.custo_material = 0; r.horas_homem = 0; r.maquinas = []; r.horas_maquina = 0; r.custo_hora_maquina = 0;
+    } else r.custo_processo = 0;
+  }
 
   const defeitos = (S.cfg.setores || {})[r.setor_origem] || [];
   const tit = novo ? "Nova não conformidade" : `${trat ? "Tratativa" : "Apontamento"} ${r.id}`;
@@ -449,15 +481,16 @@ async function editorRnc(el) {
     if (prods.length) {
       const pr = FT.produtos[r.produto];
       ft = row("w31", icombo("produto", "Produto / Máquina (ficha técnica)", prods, r.produto, o),
-          pr ? `<div class="field"><label>&nbsp;</label>${ichk("produto_inteiro", "Máquina inteira retrabalhada/refugada", r.produto_inteiro, o)}</div>` : "");
+          pr && r.metodo_proc !== "peso" ? `<div class="field"><label>&nbsp;</label>${ichk("produto_inteiro", "Máquina inteira retrabalhada/refugada", r.produto_inteiro, o)}</div>` : "");
       if (pr) {
         ft += `<div class="caption">Valor unitário do produto: ${brl(pr.valor)}${pr.familia ? " · " + esc(pr.familia) : ""}</div>`;
-        if (r.produto_inteiro) ft += `<div class="caption">Custo = ${brl(pr.valor)} × ${num(r.qtd_nc)} peça(s) NC</div>`;
+        if (PROC && r.metodo_proc === "peso") ft += "";
+        else if (r.produto_inteiro) ft += PROC ? `<div class="caption">Área = ${fnum(areaMaq)} m² × ${num(r.qtd_nc)} peça(s) NC</div>` : `<div class="caption">Custo = ${brl(pr.valor)} × ${num(r.qtd_nc)} peça(s) NC</div>`;
         else {
           const pts = FT.partes[r.produto] || {};
           const sel = r.pecas_subst || [];
           const opts = Object.entries(pts).filter(([k]) => !sel.some((s) => s.chave === k)).map(([k, p]) => [k, `${p.codigo} — ${p.nome} (${brl(p.valor_unit)}/${p.un || "un"})`]);
-          ft += icombo("_addparte", "Partes substituídas (busque por nome, código ou desenho)", opts, "", { ...o, help: "Passe o cursor no ⓘ de cada parte para ver as características." }) +
+          ft += icombo("_addparte", PROC ? "Peças retrabalhadas (busque" : "Partes substituídas (busque por nome, código ou desenho)", opts, "", { ...o, help: "Passe o cursor no ⓘ de cada parte para ver as características." }) +
             sel.map((p, i) => { const d = pts[p.chave] || p;
               const info = [`Tipo: ${d.tipo || ""}`, d.desenho ? `Desenho: ${d.desenho}` : "", d.grupo ? `Grupo: ${d.grupo}` : "", d.familia ? `Família: ${d.familia}` : "", `Unidade: ${d.un || "un"}`, d.qtd_no_produto ? `Qtd. por produto: ${d.qtd_no_produto}` : "", `Valor unitário: ${brl(p.valor_unit)}`].filter(Boolean).join("\n");
               return `<div class="parte"><div><b>${esc(p.codigo)}</b> — ${esc(p.nome)}${tip(info)}</div>
@@ -467,7 +500,9 @@ async function editorRnc(el) {
         }
       }
     }
-    h += card(ft + row("c4 keep2", inum("horas_homem", "Horas de retrabalho (pessoas)", r.horas_homem, o),
+    if (PROC) h += card(ft + row("c4 keep2",
+        `<div class="metric"><div class="l">Custo total da ocorrência</div><div class="v" id="e-custo">${brl(custo(r))}</div></div>`), "Custo da não conformidade");
+    else h += card(ft + row("c4 keep2", inum("horas_homem", "Horas de retrabalho (pessoas)", r.horas_homem, o),
         inum("custo_hora", "Valor hora-homem (R$/h)", r.custo_hora, { dis: true, help: "Automático: hora média do setor de origem (cadastro admin)" }),
         inum("custo_material", "Material e refugo (R$)", r.custo_material, { dis: true, help: "Automático: soma das partes/produto selecionados na ficha técnica" })) +
       `<div class="field"><label>Máquinas usadas no retrabalho</label>` +
@@ -480,6 +515,22 @@ async function editorRnc(el) {
       (!MAQ.length ? `<div class="caption">${r.setor_origem ? "Nenhuma máquina cadastrada para o setor " + esc(r.setor_origem) + "." : "Selecione o setor de origem para ver as máquinas."}</div>` : "") + `</div>` +
       row("c4 keep2",
         `<div class="metric"><div class="l">Custo total da ocorrência</div><div class="v" id="e-custo">${brl(custo(r))}</div></div>`), "Custo da não conformidade");
+    if (PROC) {
+      const mm = PROC.k === "p" ? "tubos: área externa · chapas: área total" : "área total (interna + externa)";
+      const ptxt = r.metodo_proc === "peso"
+        ? row("c3", inum("peso_retrab", "Peso retrabalhado (kg)", r.peso_retrab, { ...o, help: "Peso total da peça/conjunto retrabalhado desta máquina" }),
+            `<div class="metric"><div class="l">Peso da máquina</div><div class="v">${pesoMaq ? fnum(pesoMaq) + " kg" : "—"}</div></div>`,
+            `<div class="metric"><div class="l">Área da máquina</div><div class="v">${areaMaq ? fnum(areaMaq) + " m²" : "—"}</div></div>`) +
+          (r.produto && !pesoMaq ? alerta("warn", "Sem peso cadastrado para este produto (Administração → Ficha técnica → peso.csv).") : "") +
+          `<div class="caption">Área = ${fnum(areaMaq)} m² × ${fnum(num(r.peso_retrab))} kg ÷ ${fnum(pesoMaq)} kg</div>`
+        : "";
+      h += card(isel("metodo_proc", `Como calcular o custo de ${PROC.nome}`, [["pecas", "Peças identificadas (ficha técnica)"], ["peso", "Proporcional ao peso (não sei as peças)"]], r.metodo_proc, { ...o, estrito: true }) + ptxt +
+        (r.produto && !areaMaq ? alerta("warn", "Este produto não tem área calculada. Peça ao administrador para enviar area_tubos.csv (e reimportar a ficha técnica, se ela for anterior a esta versão).") : "") +
+        row("c3", `<div class="metric"><div class="l">Área processada (${mm})</div><div class="v">${fnum(num(r.area_proc))} m²</div></div>`,
+          `<div class="metric"><div class="l">Valor do processo</div><div class="v">${brl(num(r.valor_m2))}/m²</div></div>`,
+          `<div class="metric"><div class="l">Custo de ${PROC.nome}</div><div class="v">${brl(num(r.custo_processo))}</div></div>`) +
+        `<div class="caption">Tempo de linha fixo: o custo é calculado direto pela área, sem horas de retrabalho, máquinas ou material.</div>`, `Custo do processo — ${PROC.nome}`);
+    }
   } else if (sec.startsWith("3")) {
     const A = S.acoes.filter((a) => a.rnc_id === r.id);
     const tarefas = A.length ? tabela([["id", "Ação"], ["tipo", "Tipo"], ["o_que", "O que", "wrap"], ["quem", "Quem"], ["prazo", "Prazo"], ["status", "Status"]],
@@ -514,7 +565,7 @@ async function editorRnc(el) {
 
   // ligações
   const set = (k, v) => { const p = k.split("."); if (p.length === 1) r[k] = v; else if (p[0] === "porques") { r.porques = arr(r.porques); while (r.porques.length < 5) r.porques.push(""); r.porques[+p[1]] = v; } else (r[p[0]] ||= {})[p[1]] = v; };
-  const RERENDER = ["origem", "setor_origem", "maquina", "produto_inteiro", "qtd_nc"];
+  const RERENDER = ["origem", "setor_origem", "maquina", "produto_inteiro", "qtd_nc", "metodo_proc", "peso_retrab"];
   $$("[data-k]", el).forEach((i) => {
     const ev = i.tagName === "SELECT" || i.type === "checkbox" ? "change" : "input";
     i.addEventListener(ev, () => {

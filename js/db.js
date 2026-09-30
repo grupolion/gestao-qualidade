@@ -1,7 +1,7 @@
 // Camada de dados (Supabase) — equivalente ao storage.py do app Streamlit.
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm";
-import * as K from "./cripto.js?v=20260930-password8";
-import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20260930-password8";
+import * as K from "./cripto.js?v=20260930-area2";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20260930-area2";
 
 const sessionStore = {
   getItem(key) {
@@ -204,8 +204,9 @@ export async function carregarFicha(forcar = false) {
   }));
   for (const r of lista) {
     if (!r) continue;
-    produtos[r.codigo] = { codigo: r.codigo, nome: r.nome, valor: +r.valor || 0, familia: r.familia, grupo: r.grupo };
-    partes[r.codigo] = r.partes || {};
+    const { _area, _linhas, ...pts } = r.partes || {};
+    produtos[r.codigo] = { codigo: r.codigo, nome: r.nome, valor: +r.valor || 0, familia: r.familia, grupo: r.grupo, linhas: _linhas || [] };
+    partes[r.codigo] = pts;
   }
   return (_ficha = { produtos, partes });
 }

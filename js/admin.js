@@ -1,6 +1,6 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260930-password8";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-password8";
+import * as db from "./db.js?v=20260930-area2";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-area2";
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
@@ -154,24 +154,70 @@ function cadastro(box, { S }, again, chave) {
   };
 }
 
+// CSV com ';', aspas ("" escapa aspas) e decimal com vírgula ou ponto
+function csvLer(txt) {
+  const linhas = txt.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.replace(/;/g, "").trim());
+  const campos = (l) => { const out = []; let cur = "", q = false;
+    for (let i = 0; i < l.length; i++) { const ch = l[i];
+      if (q) { if (ch === '"' && l[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+      else if (ch === '"') q = true; else if (ch === ";") { out.push(cur.trim()); cur = ""; } else cur += ch; }
+    out.push(cur.trim()); return out; };
+  const [cab, ...ls] = linhas; const H = campos(cab);
+  return ls.map((l) => { const c = campos(l); return Object.fromEntries(H.map((h, i) => [h, c[i] ?? ""])); });
+}
+const nBR = (v) => { const x = parseFloat(String(v ?? "").replace(/\./g, (m, i, s) => (s.includes(",") ? "" : ".")).replace(",", ".")); return isFinite(x) ? x : 0; };
+
 // Importa view_ficha_tecnica.txt (';', decimal '.', UTF-8 BOM) — mesma regra do ficha.py
-function fichaTec(box) {
-  box.innerHTML = card(alerta("info", "Envie o arquivo <b>view_ficha_tecnica.txt</b> atualizado para substituir os produtos, componentes e materiais usados no custo das RNCs.") +
-    `<div class="field"><label>Arquivo da ficha técnica</label><input type="file" id="ft" accept=".txt,.csv"></div><div id="ftmsg"></div>`, "Ficha técnica");
-  $("#ft").onchange = async (e) => {
+// + áreas (area_tubos.csv) e pesos (peso.csv) para o custo de Pintura / Banho químico
+function fichaTec(box, ctx) {
+  const AM = ctx.S.cfg.area_materiais || {}, PS = ctx.S.cfg.pesos_maquinas || {};
+  box.innerHTML = card(alerta("info", "<b>area_tubos.csv</b> e <b>peso.csv</b> são usados no custo de Pintura e Banho químico. Cada arquivo pode ser atualizado separadamente, quando precisar: a área das máquinas/peças é calculada no app com a ficha e a tabela de áreas mais recentes.") +
+    row("c3", `<div class="field"><label>Áreas dos materiais (area_tubos.csv) · ${Object.keys(AM).length} cadastrados</label><input type="file" id="fa" accept=".csv,.txt"></div>`,
+      `<div class="field"><label>Pesos das máquinas (peso.csv) · ${Object.keys(PS).length} cadastrados</label><input type="file" id="fp" accept=".csv,.txt"></div>`,
+      `<div class="field"><label>Arquivo da ficha técnica</label><input type="file" id="ft" accept=".txt,.csv"></div>`) + `<div id="ftmsg"></div>`, "Ficha técnica, áreas e pesos");
+  const msg = $("#ftmsg");
+  const ler = (id, fn) => ($(id).onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    const msg = $("#ftmsg"); msg.innerHTML = alerta("info", "Processando…");
-    try {
-      const txt = (await f.text()).replace(/^﻿/, "");
-      const [cab, ...ls] = txt.split(/\r?\n/).filter(Boolean);
-      const H = cab.split(";").map((s) => s.trim());
+    msg.innerHTML = alerta("info", "Processando…");
+    const buf = await f.arrayBuffer();
+    // Excel exporta CSV em Latin-1: tenta UTF-8 e cai para Windows-1252
+    let txt; try { txt = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { txt = new TextDecoder("windows-1252").decode(buf); }
+    try { msg.innerHTML = alerta("ok", await fn(txt)); await ctx.recarregarCfg(); } catch (err) { msg.innerHTML = alerta("error", esc(err.message)); }
+  });
+  ler("#fa", async (txt) => {
+    // tubo: banho = área total/m, pintura = área externa/m; chapa: m²/kg nos dois processos
+    const out = {};
+    for (const r of csvLer(txt)) {
+      const cod = String(r["Código"] || r.Codigo || "").trim(); if (!cod) continue;
+      const chapa = /chapa/i.test(r["Classificação"] || r.Classificacao || "");
+      const at = nBR(r["Area Total/metro"]), ae = nBR(r["Area Externa/metro"]), kg = nBR(r["m²/kg"]);
+      const v = chapa ? { tipo: "chapa", b: kg || at, p: kg || at } : { tipo: "tubo", b: at, p: ae || at };
+      if (v.b || v.p) out[cod] = v;
+    }
+    if (!Object.keys(out).length) throw new Error("Nenhuma área encontrada — confira o cabeçalho do arquivo.");
+    await db.salvarConfig("area_materiais", out);
+    return `${Object.keys(out).length} material(is) com área salvos. As áreas das máquinas já usam a nova tabela (não precisa reimportar a ficha).`;
+  });
+  ler("#fp", async (txt) => {
+    const out = {};
+    for (const r of csvLer(txt)) { const cod = String(r.Codigo || r["Código"] || "").trim(), kg = nBR(r["Peso Kg"]); if (cod && kg > 0) out[cod] = kg; }
+    if (!Object.keys(out).length) throw new Error("Nenhum peso encontrado — confira o cabeçalho do arquivo.");
+    await db.salvarConfig("pesos_maquinas", out);
+    return `${Object.keys(out).length} peso(s) de máquina salvos.`;
+  });
+  ler("#ft", async (txt) => {
       const n = (v) => { const x = parseFloat(String(v || "").replace(",", ".")); return isFinite(x) ? x : 0; };
+      const A = ctx.S.cfg.area_materiais || {};
       const G = {};
-      for (const l of ls) { const c = l.split(";"); const r = Object.fromEntries(H.map((h, i) => [h, (c[i] || "").trim()])); (G[r.Prod_Cod_Barra] ||= []).push(r); }
+      for (const r of csvLer(txt)) (G[r.Prod_Cod_Barra] ||= []).push(r);
+      let comArea = 0;
       const lista = Object.entries(G).filter(([k]) => k).map(([cod, g]) => {
         const pr = g.find((r) => r.Tipo_Pai === "Produto");
         const partes = {};
+        // linhas de material p/ cálculo de área no app: [componente, material, Qtd_Material×Qtd_Consumo/1,06, Qtd_Componente, é linha do produto]
+        const linhas = [];
         for (const r of g) {
+          if (r.Codigo_Material) linhas.push([r.Codigo_Componente || "", r.Codigo_Material, Math.round(n(r.Quantidade_Material) * n(r.Quantidade_Consumo) / 1.06 * 1e6) / 1e6, n(r.Quantidade_Componente), r.Tipo_Pai === "Produto" ? 1 : 0]);
           if (r.Codigo_Componente && r.Tipo_Pai !== "Produto" && !partes["C" + r.Codigo_Componente])
             partes["C" + r.Codigo_Componente] = { tipo: "Componente", codigo: r.Codigo_Componente, nome: r.Nome_Componente, valor_unit: Math.round(n(r.Valor_Total_Componente) * 1e4) / 1e4,
               un: "un", desenho: r.Codigo_Desenho_Componente || "", grupo: r.Nome_Grupo || "", familia: r.Nome_Familia || "", qtd_no_produto: n(r.Quantidade_Componente) };
@@ -182,12 +228,13 @@ function fichaTec(box) {
               usado_em: r.Nome_Componente || "" };
           }
         }
+        partes._linhas = linhas;
+        if (linhas.some((l) => A[l[1]])) comArea++;
         return { codigo: cod, nome: g[0].Prod_Referencia || cod, valor: pr ? n(pr.Valor_Total_Componente) : 0, familia: g[0].Nome_Familia || "", grupo: g[0].Nome_Grupo || "", partes };
       });
       await db.importarFicha(lista); await db.carregarFicha(true); await db.salvarConfig("ficha_versao", Date.now());
-      msg.innerHTML = alerta("ok", `${lista.length} produto(s) importados. Todos os usuários conectados serão avisados para recarregar a página.`);
-    } catch (err) { msg.innerHTML = alerta("error", esc(err.message)); }
-  };
+      return `${lista.length} produto(s) importados (${comArea} com área calculada${Object.keys(A).length ? "" : " — envie area_tubos.csv para calcular"}). Todos os usuários conectados serão avisados para recarregar a página.`;
+  });
 }
 void brl;
 
