@@ -1,8 +1,8 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260930-area5";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-area5";
+import * as db from "./db.js?v=20260930-area6";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-area6";
 
-const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
+const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "📐 Áreas", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
 
 export function paginaAdmin(el, ctx) {
@@ -11,7 +11,7 @@ export function paginaAdmin(el, ctx) {
   $$("[data-t]", el).forEach((b) => (b.onclick = () => { aba = +b.dataset.t; paginaAdmin(el, ctx); }));
   const box = $("#ad");
   const again = async () => { await ctx.recarregarCfg(); paginaAdmin(el, ctx); };
-  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), fichaTec, seguranca, dados][aba](box, ctx, again);
+  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), fichaTec, areasCalc, seguranca, dados][aba](box, ctx, again);
 }
 const salvarCfg = async (k, v, again, msg = "Salvo.") => {
   try { await db.salvarConfig(k, v); toast(msg); await again(); } catch (e) { toast("Erro: " + e.message); }
@@ -312,4 +312,38 @@ async function seguranca(box) {
     try { await db.recuperarComMestra($("#f-rm").value, $("#f-rs").value); toast("Acesso recuperado."); location.reload(); }
     catch (e) { toast("Erro: " + e.message); }
   };
+}
+
+// ---------- 📐 Conferência do cálculo de área (Pintura / Banho) ----------
+let areaProd = "";
+async function areasCalc(box, ctx) {
+  box.innerHTML = `<div class="loading">Carregando ficha técnica…</div>`;
+  let F; try { F = await db.carregarFicha(); } catch (e) { box.innerHTML = alerta("error", esc(e.message)); return; }
+  const A = ctx.S.cfg.area_materiais || {};
+  const prods = Object.values(F.produtos).sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
+  const f = (v, d = 4) => num(v).toLocaleString("pt-BR", { maximumFractionDigits: d });
+  let h = card(isel("areaProd", "Produto / máquina", [["", "Selecione…"], ...prods.map((p) => [p.codigo, `${p.nome} (${p.codigo})`])], areaProd, { estrito: true }) +
+    `<div class="caption">Por linha da ficha: consumo = Qtd_Material × Qtd_Consumo ÷ 1,06; quantidade = consumo × Qtd do componente;
+     área = quantidade × área unitária (tubo: m²/metro; chapa: m²/kg). Banho usa a área total; Pintura usa a área externa (tubo) ou m²/kg (chapa).</div>`, "Conferência de áreas");
+  if (areaProd && F.produtos[areaProd]) {
+    const P = F.partes[areaProd] || {}, L = F.produtos[areaProd].linhas || [];
+    let tb = 0, tp = 0, tb0 = 0, tp0 = 0, sem = 0;
+    const linhas = L.map(([c, m, q, qc, prodRow]) => {
+      const a = A[m], mat = P["M" + m] || {}, comp = P["C" + c] || {};
+      const qtd = q * qc, b = a ? qtd * num(a.b) : 0, pp = a ? qtd * num(a.p) : 0;
+      if (a) { tb += b; tp += pp; tb0 += b * 1.06; tp0 += pp * 1.06; } else sem++;
+      return `<tr${a ? "" : ' style="opacity:.55"'}><td>${prodRow ? "(produto)" : esc(c) + " — " + esc(comp.nome || "")}</td><td class="num">${f(qc)}</td>
+        <td>${esc(m)} — ${esc(mat.nome || "")}</td><td>${esc(mat.un || "")}</td><td>${a ? (a.tipo === "chapa" ? "Chapa" : "Tubo") : "sem área"}</td>
+        <td class="num">${f(q * 1.06)}</td><td class="num">${f(q)}</td><td class="num">${f(qtd)}</td>
+        <td class="num">${a ? f(a.b, 6) : "—"}</td><td class="num">${a ? f(a.p, 6) : "—"}</td><td class="num">${a ? f(b) : "—"}</td><td class="num">${a ? f(pp) : "—"}</td></tr>`;
+    }).join("");
+    h += card(`<div class="tbl-wrap"><table><thead><tr><th>Componente</th><th>Qtd comp.</th><th>Material</th><th>Un.</th><th>Tipo</th>
+      <th>Consumo ficha</th><th>÷ 1,06</th><th>Qtd total</th><th>m²/un banho</th><th>m²/un pintura</th><th>Área banho (m²)</th><th>Área pintura (m²)</th></tr></thead>
+      <tbody>${linhas || '<tr><td colspan="12">Sem linhas de material para este produto.</td></tr>'}</tbody>
+      <tfoot><tr><th colspan="10">Total (usado no app)</th><th class="num">${f(tb, 3)}</th><th class="num">${f(tp, 3)}</th></tr>
+      <tr><td colspan="10">Total sem dividir por 1,06 (comparação)</td><td class="num">${f(tb0, 3)}</td><td class="num">${f(tp0, 3)}</td></tr></tfoot></table></div>` +
+      (sem ? `<div class="caption">${sem} linha(s) com material fora do area_tubos.csv (não entram na área).</div>` : ""), "Itens e cálculo");
+  }
+  box.innerHTML = h;
+  const s = box.querySelector("select"); if (s) s.addEventListener("change", () => { areaProd = s.value; areasCalc(box, ctx); });
 }
