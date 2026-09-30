@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260930-area2";
+import * as db from "./db.js?v=20260930-area3";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20260930-area2";
-import { paginaAdmin } from "./admin.js?v=20260930-area2";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20260930-area3";
+import { paginaAdmin } from "./admin.js?v=20260930-area3";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -52,7 +52,7 @@ export function processoLinha(setor) {
 // área (m²) com a tabela atual de materiais — k: "b" banho (área total) | "p" pintura (tubo externa, chapa total)
 // chave vazia = máquina inteira; "C<cod>" = 1 componente; "M<cod>" = 1 unidade do material
 function areaFicha(prod, chave, k) {
-  const A = S.cfg.area_materiais || {}, L = FT.produtos[prod]?.linhas || [];
+  const A = S.cfg.area_materiais || {}, L = fichaCache?.produtos?.[prod]?.linhas || [];
   if (!chave) return L.reduce((s, [, m, q, qc]) => s + q * qc * num(A[m]?.[k]), 0);
   if (chave[0] === "M") return num(A[chave.slice(1)]?.[k]);
   const visto = new Set();
