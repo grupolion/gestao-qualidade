@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260930-area4";
+import * as db from "./db.js?v=20260930-area5";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20260930-area4";
-import { paginaAdmin } from "./admin.js?v=20260930-area4";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20260930-area5";
+import { paginaAdmin } from "./admin.js?v=20260930-area5";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -526,6 +526,9 @@ async function editorRnc(el) {
         : "";
       h += card(isel("metodo_proc", `Como calcular o custo de ${PROC.nome}`, [["pecas", "Peças identificadas (ficha técnica)"], ["peso", "Proporcional ao peso (não sei as peças)"]], r.metodo_proc, { ...o, estrito: true }) + ptxt +
         (r.produto && !areaMaq ? alerta("warn", "Este produto não tem área calculada. Peça ao administrador para enviar area_tubos.csv (e reimportar a ficha técnica, se ela for anterior a esta versão).") : "") +
+        (r.produto && areaMaq && r.metodo_proc !== "peso" ? `<div class="caption">Área da máquina inteira: ${fnum(areaMaq)} m²</div>` : "") +
+        (r.produto && !num(r.area_proc) && r.metodo_proc !== "peso"
+          ? alerta("info", r.produto_inteiro ? "Informe a Qtd NC para calcular a área processada." : "Marque \"Máquina inteira retrabalhada\" ou adicione as peças retrabalhadas abaixo para calcular a área processada.") : "") +
         row("c3", `<div class="metric"><div class="l">Área processada (${mm})</div><div class="v">${fnum(num(r.area_proc))} m²</div></div>`,
           `<div class="metric"><div class="l">Valor do processo</div><div class="v">${brl(num(r.valor_m2))}/m²</div></div>`,
           `<div class="metric"><div class="l">Custo de ${PROC.nome}</div><div class="v">${brl(num(r.custo_processo))}</div></div>`) +
