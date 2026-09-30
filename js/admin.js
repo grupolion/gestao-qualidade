@@ -1,6 +1,6 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260930-area3";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-area3";
+import * as db from "./db.js?v=20260930-area4";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-area4";
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
@@ -206,7 +206,14 @@ function fichaTec(box, ctx) {
     return `${Object.keys(out).length} peso(s) de máquina salvos.`;
   });
   ler("#ft", async (txt) => {
-      const n = (v) => { const x = parseFloat(String(v || "").replace(",", ".")); return isFinite(x) ? x : 0; };
+      // aceita "44.41", "44,41", "1.815,72", "1,815.72", "R$ 44,41" (export do Excel em pt-BR)
+      const n = (v) => {
+        let t = String(v ?? "").replace(/[^\d,.\-]/g, "");
+        const c = t.lastIndexOf(","), d = t.lastIndexOf(".");
+        if (c > d) t = t.replace(/\./g, "").replace(",", ".");
+        else if (c >= 0) t = t.replace(/,/g, "");
+        const x = parseFloat(t); return isFinite(x) ? x : 0;
+      };
       const A = ctx.S.cfg.area_materiais || {};
       const G = {};
       for (const r of csvLer(txt)) (G[r.Prod_Cod_Barra] ||= []).push(r);
@@ -232,6 +239,7 @@ function fichaTec(box, ctx) {
         if (linhas.some((l) => A[l[1]])) comArea++;
         return { codigo: cod, nome: g[0].Prod_Referencia || cod, valor: pr ? n(pr.Valor_Total_Componente) : 0, familia: g[0].Nome_Familia || "", grupo: g[0].Nome_Grupo || "", partes };
       });
+      if (lista.length && !lista.some((p) => p.valor > 0)) throw new Error("Nenhum valor de produto encontrado — confira as colunas Valor_Total_Componente / Valor_Total_Material do arquivo.");
       await db.importarFicha(lista); await db.carregarFicha(true); await db.salvarConfig("ficha_versao", Date.now());
       return `${lista.length} produto(s) importados (${comArea} com área calculada${Object.keys(A).length ? "" : " — envie area_tubos.csv para calcular"}). Todos os usuários conectados serão avisados para recarregar a página.`;
   });
