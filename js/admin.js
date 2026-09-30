@@ -82,10 +82,10 @@ function usuarios(box, { S }, again) {
       P.map((p) => ({ ...p, ativo: p.ativo ? "Sim" : "Não", setores: p.perfil === "admin" ? "(todos)" : (p.setores || []).join(", ") })), { h: 320 }), "Usuários") +
     `<div class="card" id="nu"><div class="ttl">Novo usuário</div>` + alerta("info", "Somente o <b>administrador</b> cria usuários. Cada usuário acessa com login e senha.") +
       row("c2", inp("login", "Login (sem espaços)", ""), inp("nome", "Nome completo", "")) + row("c3", inp("s1", "Senha", "", { type: "password" }), inp("s2", "Repita a senha", "", { type: "password" }),
-      isel("perfil", "Perfil", [["usuario", "Usuário"], ["admin", "Administrador"]], "usuario")) + opSet() + (db.criptoAtiva() ? inp("senhaAdmin", "Sua senha de administrador", "", { type: "password" }) : "") + `<button class="btn primary" id="criar">Criar usuário</button></div>` +
+      isel("perfil", "Perfil", [["usuario", "Usuário"], ["admin", "Administrador"]], "usuario")) + opSet() + inp("senhaAdmin", "Sua senha de administrador", "", { type: "password" }) + `<button class="btn primary" id="criar">Criar usuário</button></div>` +
     (u ? `<div class="card" id="eu"><div class="ttl">Editar / excluir usuário</div>` + isel("u", "Usuário", P.map((p) => [p.id, `${p.nome} (${p.login})`]), u.id) +
       row("c3", inp("nome", "Nome", u.nome), isel("perfil", "Perfil", [["usuario", "Usuário"], ["admin", "Administrador"]], u.perfil), `<div class="field"><label>&nbsp;</label>${ichk("ativo", "Ativo", u.ativo)}</div>`) +
-      opSet(u.setores || []) + (db.criptoAtiva() ? inp("senhaAdmin", "Sua senha de administrador (para redefinir senha)", "", { type: "password" }) : "") + inp("senha", "Nova senha (deixe em branco para manter)", "", { type: "password" }) +
+      opSet(u.setores || []) + inp("senhaAdmin", "Sua senha de administrador", "", { type: "password" }) + inp("senha", "Nova senha (deixe em branco para manter)", "", { type: "password" }) +
       `<div class="btnrow" style="margin-top:1rem"><button class="btn primary" id="salv">💾 Salvar alterações</button><button class="btn danger" id="exc">🗑 Excluir usuário</button></div></div>` : "");
   const v = (id, k) => $(`#${id} [data-k=${k}]`);
   const sets = (id) => $$(`#${id} [data-set]`).filter((c) => c.checked).map((c) => c.value);
@@ -107,14 +107,14 @@ function usuarios(box, { S }, again) {
     if (senha && senha.length < 12) return toast("A senha deve ter pelo menos 12 caracteres.");
     try {
       if (senha) await db.definirSenha(u.id, senha, v("eu", "senhaAdmin")?.value);
-      await db.salvarPerfil(u.id, { nome: v("eu", "nome").value.trim() || u.login, perfil, ativo, setores: sets("eu") });
+      await db.salvarPerfil(u.id, { nome: v("eu", "nome").value.trim() || u.login, perfil, ativo, setores: sets("eu") }, v("eu", "senhaAdmin").value);
       toast(`Usuário ${u.login} atualizado.`); await again(); } catch (e) { toast("Erro: " + e.message); }
   };
   $("#exc").onclick = async () => {
     if (u.id === S.user.id) return toast("Você não pode excluir o próprio usuário.");
     if (u.perfil === "admin" && !adminsAtivos(u.id)) return toast("É preciso manter ao menos um administrador ativo.");
     if (!(await confirmar(`Excluir ${u.login}? O histórico dos registros é mantido.`))) return;
-    try { await db.excluirUsuario(u.id); usuarios.sel = null; toast("Usuário excluído."); await again(); } catch (e) { toast("Erro: " + e.message); }
+    try { await db.excluirUsuario(u.id, v("eu", "senhaAdmin").value); usuarios.sel = null; toast("Usuário excluído."); await again(); } catch (e) { toast("Erro: " + e.message); }
   };
 }
 

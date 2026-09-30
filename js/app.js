@@ -36,7 +36,6 @@ const menuLabel = (m, i) => `<svg class="nav-icon" viewBox="0 0 24 24" fill="non
 
 // ---------------- estado ----------------
 const S = { user: null, cfg: null, perfis: [], rnc: [], acoes: [], pagina: MENU[0], edit: null, draft: null, filtros: {}, timer: null };
-window.GQ = S;
 const admin = () => S.user?.perfil === "admin";
 export const SETORES = () => Object.keys(S.cfg?.setores || {});
 const setUser = () => (admin() ? SETORES() : SETORES().filter((s) => (S.user.setores || []).includes(s)));
@@ -138,7 +137,7 @@ function telaLogin(erro = "") {
     const v = (k) => $(`[data-k=${k}]`);
     if (!v("login").value.trim() || !v("senha").value) return ($("#flogin .msg").innerHTML = alerta("error", "Informe login e senha."));
     try { S.user = await db.entrar(v("login").value, v("senha").value, v("manter").checked); await iniciar(); }
-    catch (err) { $("#flogin .msg").innerHTML = alerta("error", esc(err.message)); }
+    catch (err) { telaLogin(err.message); }
   };
 }
 function avisoFicha() {
@@ -150,6 +149,28 @@ function avisoFicha() {
   document.body.append(d);
 }
 async function iniciar() {
+  if (db.criptoAtiva() && !db.temChave()) {
+    app().innerHTML = `<div class="login">${heading("Recuperar acesso", "Entre novamente ou use a chave mestra para recuperar sua chave de dados.")}
+      <form class="card" id="frecovery">
+        ${inp("mestra", "Chave mestra", "", { type: "password" })}
+        ${inp("atual", "Sua senha de administrador", "", { type: "password" })}
+        <button class="btn primary" type="submit">Recuperar</button>
+        <button class="btn" type="button" id="relogin">Entrar novamente</button>
+        <div class="msg"></div>
+      </form></div>`;
+    $("#relogin").onclick = async () => { await db.sair(); location.reload(); };
+    $("#frecovery").onsubmit = async e => {
+      e.preventDefault();
+      try {
+        await db.recuperarComMestra($('[data-k="mestra"]').value, $('[data-k="atual"]').value);
+        await iniciar();
+      } catch (err) {
+        const msg = $("#frecovery .msg");
+        if (msg) msg.innerHTML = alerta("error", esc(err.message)); else telaLogin(err.message);
+      }
+    };
+    return;
+  }
   app().innerHTML = `<div class="loading">Carregando dados…</div>`;
   S.cfg = await db.carregarConfig();
   await carregar();

@@ -41,6 +41,9 @@ async function cifrarDados(d) {
   if (Object.keys(x).length) o._c = await K.cifrar(_dek, x);
   return o;
 }
+async function decifrarDados(d) {
+  if (!d || !K.cifrado(d._c)) return d;
+  const { _c, ...o } = d;
   if (!_dek) throw new Error("Entre novamente para acessar os dados cifrados.");
   return { ...o, ...(await K.decifrar(_dek, _c)) };
 }
@@ -74,8 +77,9 @@ export async function entrar(login, senha, manter) {
     if (error) throw new Error("Login ou senha inválidos.");
     const p = await meuPerfil();
     const { data: { user } } = await sb.auth.getUser();
-    await carregarChave(user, senha);
-    if (_ativa && !_dek) throw new Error("Seu acesso ainda não foi liberado. Peça ao administrador para redefinir sua senha.");
+    try { await carregarChave(user, senha); }
+    catch (e) { if (p.perfil !== "admin" || !_ativa) throw e; }
+    if (_ativa && !_dek && p.perfil !== "admin") throw new Error("Seu acesso ainda não foi liberado. Peça ao administrador para redefinir sua senha.");
     return p;
   } catch (e) { await sair(); throw e; }
 }
@@ -92,7 +96,7 @@ export async function sessaoAtual() {
     if (!data.session) { await K.limparLocal(); return null; }
     const p = await meuPerfil();
     await carregarChave(data.session.user, null);
-    if (_ativa && !_dek) { await sair(); return null; }
+    if (_ativa && !_dek && p.perfil !== "admin") { await sair(); return null; }
     return p;
   } catch (e) { await sair(); throw e; }
 }
@@ -126,15 +130,17 @@ export async function criarUsuario({ login, nome, senha, perfil, setores, senhaA
   if (!data.user?.id) throw new Error("Não foi possível criar o usuário.");
   // Keep the account inactive until its encryption envelope exists.
   await embrulharPara(data.user.id, senha, chave);
-  await salvarPerfil(data.user.id, { nome, perfil, setores, ativo: true });
+  await salvarPerfil(data.user.id, { nome, perfil, setores, ativo: true }, senhaAdmin);
 }
-export async function salvarPerfil(id, campos) { chk(await sb.from("perfis").update(campos).eq("id", id)); }
+export async function salvarPerfil(id, campos, senhaAdmin) {
+  chk(await sb.rpc("admin_salvar_perfil", { uid: id, campos, senha_admin: senhaAdmin }));
+}
 export async function definirSenha(id, senha, senhaAdmin) {
   const dek = await chaveParaProvisionar(senhaAdmin);
   const chave = dek ? await K.embrulhar(dek, senha) : null;
-  chk(await sb.rpc("admin_definir_senha_segura", { uid: id, senha, chave }));
+  chk(await sb.rpc("admin_definir_senha_segura", { uid: id, senha, chave, senha_admin: senhaAdmin }));
 }
-export async function excluirUsuario(id) { chk(await sb.rpc("admin_excluir_usuario", { uid: id })); }
+export async function excluirUsuario(id, senhaAdmin) { chk(await sb.rpc("admin_excluir_usuario_seguro", { uid: id, senha_admin: senhaAdmin })); }
 
 // ---------- configuração ----------
 export async function carregarConfig() {
