@@ -1,7 +1,7 @@
 // Camada de dados (Supabase) — equivalente ao storage.py do app Streamlit.
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm";
-import * as K from "./cripto.js?v=20260929-security1";
-import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20260929-security1";
+import * as K from "./cripto.js?v=20260930-password8";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20260930-password8";
 
 const sessionStore = {
   getItem(key) {
@@ -23,6 +23,15 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     lock: async (_n, _t, fn) => await fn() } });
 
 export class ConflictError extends Error {}
+export const DICA_SENHA = "Mínimo de 8 caracteres, com letra maiúscula (A-Z), minúscula (a-z) e caractere especial (ex.: !, @, #).";
+export function erroSenha(senha) {
+  if (typeof senha !== "string" || [...senha].length < 8 ||
+      !/[A-Z]/.test(senha) || !/[a-z]/.test(senha) || !/[!-/:-@\[-`{-~]/.test(senha))
+    return DICA_SENHA;
+  if (new TextEncoder().encode(senha).length > 72) return "A senha excede o tamanho máximo permitido (72 bytes).";
+  return "";
+}
+function exigirNovaSenha(senha) { const erro = erroSenha(senha); if (erro) throw new Error(erro); }
 const email = (login) => `${login.trim().toLowerCase()}@${EMAIL_DOMINIO}`;
 const chk = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
@@ -108,6 +117,7 @@ export async function meuPerfil() {
   return p;
 }
 export async function trocarSenha(atual, nova, login) {
+  exigirNovaSenha(nova);
   const p = await meuPerfil();
   if (!p) throw new Error("Entre novamente.");
   let chave = null;
@@ -122,7 +132,7 @@ export async function trocarSenha(atual, nova, login) {
 // ---------- usuários (admin) ----------
 export const listarPerfis = async () => chk(await sb.from("perfis").select("*").order("login"));
 export async function criarUsuario({ login, nome, senha, perfil, setores, senhaAdmin }) {
-  if (senha.length < 12) throw new Error("A senha deve ter pelo menos 12 caracteres.");
+  exigirNovaSenha(senha);
   const chave = await chaveParaProvisionar(senhaAdmin);
   const tmp = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, storageKey: "gq-tmp" } });
   const { data, error } = await tmp.auth.signUp({ email: email(login), password: senha });
@@ -136,6 +146,7 @@ export async function salvarPerfil(id, campos, senhaAdmin) {
   chk(await sb.rpc("admin_salvar_perfil", { uid: id, campos, senha_admin: senhaAdmin }));
 }
 export async function definirSenha(id, senha, senhaAdmin) {
+  exigirNovaSenha(senha);
   const dek = await chaveParaProvisionar(senhaAdmin);
   const chave = dek ? await K.embrulhar(dek, senha) : null;
   chk(await sb.rpc("admin_definir_senha_segura", { uid: id, senha, chave, senha_admin: senhaAdmin }));

@@ -1,6 +1,6 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260929-security1";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260929-security1";
+import * as db from "./db.js?v=20260930-password8";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-password8";
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
@@ -81,11 +81,11 @@ function usuarios(box, { S }, again) {
   box.innerHTML = card(tabela([["login", "Login"], ["nome", "Nome"], ["perfil", "Perfil"], ["ativo", "Ativo"], ["setores", "Setores", "wrap"]],
       P.map((p) => ({ ...p, ativo: p.ativo ? "Sim" : "Não", setores: p.perfil === "admin" ? "(todos)" : (p.setores || []).join(", ") })), { h: 320 }), "Usuários") +
     `<div class="card" id="nu"><div class="ttl">Novo usuário</div>` + alerta("info", "Somente o <b>administrador</b> cria usuários. Cada usuário acessa com login e senha.") +
-      row("c2", inp("login", "Login (sem espaços)", ""), inp("nome", "Nome completo", "")) + row("c3", inp("s1", "Senha", "", { type: "password" }), inp("s2", "Repita a senha", "", { type: "password" }),
+      row("c2", inp("login", "Login (sem espaços)", ""), inp("nome", "Nome completo", "")) + row("c3", inp("s1", "Senha", "", { type: "password", help: db.DICA_SENHA }), inp("s2", "Repita a senha", "", { type: "password" }),
       isel("perfil", "Perfil", [["usuario", "Usuário"], ["admin", "Administrador"]], "usuario")) + opSet() + inp("senhaAdmin", "Sua senha de administrador", "", { type: "password" }) + `<button class="btn primary" id="criar">Criar usuário</button></div>` +
     (u ? `<div class="card" id="eu"><div class="ttl">Editar / excluir usuário</div>` + isel("u", "Usuário", P.map((p) => [p.id, `${p.nome} (${p.login})`]), u.id) +
       row("c3", inp("nome", "Nome", u.nome), isel("perfil", "Perfil", [["usuario", "Usuário"], ["admin", "Administrador"]], u.perfil), `<div class="field"><label>&nbsp;</label>${ichk("ativo", "Ativo", u.ativo)}</div>`) +
-      opSet(u.setores || []) + inp("senhaAdmin", "Sua senha de administrador", "", { type: "password" }) + inp("senha", "Nova senha (deixe em branco para manter)", "", { type: "password" }) +
+      opSet(u.setores || []) + inp("senhaAdmin", "Sua senha de administrador", "", { type: "password" }) + inp("senha", "Nova senha (deixe em branco para manter)", "", { type: "password", help: db.DICA_SENHA }) +
       `<div class="btnrow" style="margin-top:1rem"><button class="btn primary" id="salv">💾 Salvar alterações</button><button class="btn danger" id="exc">🗑 Excluir usuário</button></div></div>` : "");
   const v = (id, k) => $(`#${id} [data-k=${k}]`);
   const sets = (id) => $$(`#${id} [data-set]`).filter((c) => c.checked).map((c) => c.value);
@@ -93,7 +93,8 @@ function usuarios(box, { S }, again) {
     const login = v("nu", "login").value.trim().toLowerCase();
     if (!login || /\s/.test(login)) return toast("Informe um login sem espaços.");
     if (P.some((p) => p.login === login)) return toast(`O login '${login}' já existe.`);
-    if (v("nu", "s1").value.length < 12) return toast("A senha deve ter pelo menos 12 caracteres.");
+    const erro = db.erroSenha(v("nu", "s1").value);
+    if (erro) return toast(erro);
     if (v("nu", "s1").value !== v("nu", "s2").value) return toast("As senhas não conferem.");
     try { await db.criarUsuario({ login, nome: v("nu", "nome").value.trim() || login, senha: v("nu", "s1").value, perfil: v("nu", "perfil").value, setores: sets("nu"), senhaAdmin: v("nu", "senhaAdmin")?.value });
       toast(`Usuário ${login} criado.`); await again(); } catch (e) { toast("Erro: " + e.message); }
@@ -104,7 +105,8 @@ function usuarios(box, { S }, again) {
   $("#salv").onclick = async () => {
     const perfil = v("eu", "perfil").value, ativo = v("eu", "ativo").checked, senha = v("eu", "senha").value;
     if ((perfil !== "admin" || !ativo) && !adminsAtivos(u.id)) return toast("É preciso manter ao menos um administrador ativo.");
-    if (senha && senha.length < 12) return toast("A senha deve ter pelo menos 12 caracteres.");
+    const erro = senha ? db.erroSenha(senha) : "";
+    if (erro) return toast(erro);
     try {
       if (senha) await db.definirSenha(u.id, senha, v("eu", "senhaAdmin")?.value);
       await db.salvarPerfil(u.id, { nome: v("eu", "nome").value.trim() || u.login, perfil, ativo, setores: sets("eu") }, v("eu", "senhaAdmin").value);

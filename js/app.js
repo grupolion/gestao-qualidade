@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20260929-security1";
+import * as db from "./db.js?v=20260930-password8";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20260929-security1";
-import { paginaAdmin } from "./admin.js?v=20260929-security1";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20260930-password8";
+import { paginaAdmin } from "./admin.js?v=20260930-password8";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -109,12 +109,13 @@ function render() {
   } catch (e) { console.error(e); pg.innerHTML = alerta("error", esc(e.message)); }
 }
 function trocarSenha() {
-  const m = modal(`<h3>Trocar senha</h3>${inp("a", "Senha atual", "", { type: "password" })}${inp("n", "Nova senha", "", { type: "password" })}
+  const m = modal(`<h3>Trocar senha</h3>${inp("a", "Senha atual", "", { type: "password" })}${inp("n", "Nova senha", "", { type: "password", help: db.DICA_SENHA })}
     ${inp("r", "Repita a nova senha", "", { type: "password" })}<div class="btnrow" style="margin-top:1rem"><button class="btn primary">Salvar</button></div><div class="msg"></div>`, { sm: true });
   m.querySelector(".btn.primary").onclick = async () => {
     const v = (k) => m.querySelector(`[data-k=${k}]`).value;
     const msg = m.querySelector(".msg");
-    if (v("n").length < 12) return (msg.innerHTML = alerta("error", "A senha deve ter pelo menos 12 caracteres."));
+    const erro = db.erroSenha(v("n"));
+    if (erro) return (msg.innerHTML = alerta("error", esc(erro)));
     if (v("n") !== v("r")) return (msg.innerHTML = alerta("error", "As senhas não conferem."));
     try { await db.trocarSenha(v("a"), v("n"), S.user.login); m.fechar(); location.reload(); }
     catch (e) { msg.innerHTML = alerta("error", esc(e.message)); }
