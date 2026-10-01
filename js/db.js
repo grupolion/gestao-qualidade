@@ -1,7 +1,7 @@
 // Camada de dados (Supabase) — equivalente ao storage.py do app Streamlit.
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm";
-import * as K from "./cripto.js?v=20261001-area16";
-import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20261001-area16";
+import * as K from "./cripto.js?v=20261001-retrabalho1";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, EMAIL_DOMINIO } from "./config.js?v=20261001-retrabalho1";
 
 const sessionStore = {
   getItem(key) {
@@ -37,7 +37,7 @@ const chk = ({ data, error }) => { if (error) throw new Error(error.message); re
 
 // ---------- criptografia (custos + ficha técnica) ----------
 let _dek = null, _ativa = false;
-const SENS = /^(custo|horas_|pecas_subst|valor)/;
+const SENS = /^(custo|horas_|pecas_subst|processos_retrabalho|valor)/;
 const CFG_SENS = ["setor_params", "maquinas", "pecas", "parametros"];
 export const criptoAtiva = () => _ativa;
 export const temChave = () => !!_dek;

@@ -1,8 +1,9 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20261001-area16";
+import * as db from "./db.js?v=20261001-retrabalho1";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area16";
-import { paginaAdmin } from "./admin.js?v=20261001-area16";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-retrabalho1";
+import { paginaAdmin } from "./admin.js?v=20261001-retrabalho1";
+import { processoLinha, custosRetrabalho, calcularProcessos, converterRetrabalho, telaRetrabalho, ligarRetrabalho, erroRetrabalho } from './retrabalho.js?v=20261001-retrabalho1';
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -43,12 +44,7 @@ export const nome = (login) => S.perfis.find((p) => p.login === login)?.nome || 
 const pessoas = () => S.perfis.filter((p) => p.ativo).map((p) => [p.login, `${p.nome} (${p.login})`]);
 const statusDe = (r) => LEGADO[r.status] || r.status || APONTADO;
 // setores com linha de tempo fixo (custo por m²); taxas podem ser sobrescritas em parametros
-export function processoLinha(setor) {
-  const s = String(setor || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  if (s.includes("pintura")) return { k: "p", nome: "pintura", param: "valor_m2_pintura", padrao: 79 };
-  if (s.includes("banho") || s.includes("quimic")) return { k: "b", nome: "banho químico", param: "valor_m2_banho", padrao: 24 };
-  return null;
-}
+export { processoLinha } from './retrabalho.js?v=20261001-retrabalho1';
 // área (m²) com a tabela atual de materiais — k: "b" banho (área total) | "p" pintura (tubo externa, chapa total)
 // chave vazia = máquina inteira; "C<cod>" = 1 componente; "M<cod>" = 1 unidade do material
 // chapa: consumo cheio (sem ÷1,06); tubo: consumo ÷1,06 (já gravado assim na ficha)
@@ -61,7 +57,7 @@ function areaFicha(prod, chave, k) {
   return L.reduce((s, [c, m, q, , prodRow]) => { if (prodRow || "C" + c !== chave || visto.has(m)) return s; visto.add(m); return s + q * fatA(A[m]) * num(A[m]?.[k]); }, 0);
 }
 const fnum = (v) => num(v).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
-export function custo(r) { return num(r.horas_homem) * num(r.custo_hora) + num(r.horas_maquina) * num(r.custo_hora_maquina) + num(r.custo_material) + num(r.custo_processo); }
+export function custo(r) { const c = custosRetrabalho(r); return c.homem + c.maquina + c.material + c.processo; }
 const atrasada = (a) => !!a.quando && !["Concluída", "Cancelada"].includes(a.status) && a.quando.slice(0, 10) < hoje();
 const visivel = (r) => admin() || (S.user.setores || []).includes(r.setor_origem);
 const rncLbl = (r) => `${r.id} · ${r.setor_origem || ""} · ${r.tipo_nc || (r.descricao || "").slice(0, 40)}`;
@@ -259,10 +255,10 @@ function painel(el, f) {
   const A = S.acoes.filter((a) => ids.has(a.rnc_id));
   const verif = R.filter((r) => ["Sim", "Não"].includes(r.eficaz));
   // componentes de custo
-  const cHH = (r) => num(r.horas_homem) * num(r.custo_hora);
-  const cHM = (r) => num(r.horas_maquina) * num(r.custo_hora_maquina);
+  const cHH = (r) => custosRetrabalho(r).homem;
+  const cHM = (r) => custosRetrabalho(r).maquina;
   const cRef = (r) => num(r.custo_material);
-  const hTot = (r) => num(r.horas_homem);
+  const hTot = (r) => custosRetrabalho(r).horas;
   const soma = (fn) => R.reduce((s, r) => s + fn(r), 0);
   const hfmt = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " h";
   const k = [metric("RNCs no período", R.length), metric("Peças não conformes", soma((r) => num(r.qtd_nc)).toLocaleString("pt-BR")),
@@ -316,10 +312,10 @@ function painel(el, f) {
   };
   const qtd = (r) => num(r.qtd_nc);
   if (aba === 0) {
-    temporal("Custo com retrabalho (R$)", [{ label: "H/homem", data: serie(cHH) }, { label: "H/máquina", data: serie(cHM) }, { label: "Refugo (peças)", data: serie(cRef) }], brl, true);
+    temporal("Custo com retrabalho (R$)", [{ label: "H/homem", data: serie(cHH) }, { label: "H/máquina", data: serie(cHM) }, { label: "Refugo (peças)", data: serie(cRef) }, { label: "Banho / pintura", data: serie((r) => custosRetrabalho(r).processo) }], brl, true);
     temporal("Custo h/homem (R$)", [{ label: "Custo h/homem", data: serie(cHH) }], brl);
     temporal("Custo refugo – peças (R$)", [{ label: "Refugo", data: serie(cRef) }], brl);
-    temporal("Horas totais de retrabalho", [{ label: "Horas homem", data: serie(hTot) }, { label: "Horas máquina", data: serie((r) => num(r.horas_maquina)) }], hfmt);
+    temporal("Horas totais de retrabalho", [{ label: "Horas homem", data: serie(hTot) }, { label: "Horas máquina", data: serie((r) => custosRetrabalho(r).horas_maquina) }], hfmt);
   } else if (aba === 1) {
     const fp = fichaCache.produtos || {};
     const prod = (r) => r.produto ? (fp[r.produto]?.nome ? `${r.produto} - ${fp[r.produto].nome}` : r.produto).slice(0, 45) : "";
@@ -431,6 +427,8 @@ async function editorRnc(el) {
   const E = S.edit, r = E.rec, P = S.cfg.parametros;
   // não espera a ficha técnica: abre o formulário já e redesenha a aba Custos quando ela chegar
   const semFicha = !fichaCache;
+  if (!r.id && !Array.isArray(r.processos_retrabalho)) converterRetrabalho(r, SETORES());
+  const multi = Array.isArray(r.processos_retrabalho);
   if (semFicha) ficha().then(() => { if (fichaCache && S.edit === E && secsAtual(E) === "2") editorRnc(el); });
   const FT = fichaCache || { produtos: {}, partes: {} };
   const novo = !r.id, fin = FINAIS.includes(r.status), trat = r.status !== APONTADO;
@@ -440,19 +438,20 @@ async function editorRnc(el) {
   // sugestões automáticas (só preenchem vazio ou sugestão anterior)
   const sugerir = (k, v) => { v = Math.round(v * 100) / 100; if (!num(r[k]) || num(r[k]) === num(r["auto_" + k])) r[k] = v; r["auto_" + k] = v; };
   const sp = (S.cfg.setor_params || {})[r.setor_origem] || {};
-  if (!fin) r.custo_hora = num(sp.hora_media) || num(P.custo_hora_padrao);
+  if (!multi && !fin) r.custo_hora = num(sp.hora_media) || num(P.custo_hora_padrao);
   const MAQ = (S.cfg.maquinas || []).map((m) => ({ ...m, codigo: m.nome || m.descricao || m.codigo, descricao: "" })).filter((m) => !r.setor_origem || m.setor === r.setor_origem);
   if (!Array.isArray(r.maquinas)) r.maquinas = r.maquina ? [{ codigo: r.maquina, horas: num(r.horas_maquina) }] : [];
-  if (!fin) {
+  if (!multi && !fin) {
     r.maquinas.forEach((m) => { const c = MAQ.find((x) => x.codigo === m.codigo); m.valor_hora = c ? num(c.custo_hora) : num(m.valor_hora); });
     const hm = r.maquinas.reduce((s, m) => s + num(m.horas), 0), vm = r.maquinas.reduce((s, m) => s + num(m.horas) * num(m.valor_hora), 0);
     r.horas_maquina = hm; r.custo_hora_maquina = hm ? Math.round((vm / hm) * 100) / 100 : 0;
   }
-  if (r.produto && FT.produtos[r.produto]) {
+  if (!multi && r.produto && FT.produtos[r.produto]) {
     if (!fin) r.custo_material = Math.round((r.produto_inteiro ? FT.produtos[r.produto].valor * num(r.qtd_nc) : (r.pecas_subst || []).reduce((s, p) => s + num(p.qtd) * num(p.valor_unit), 0)) * 100) / 100;
   }
   // Pintura / Banho químico: linha com tempo fixo → custo = área (m²) × R$/m² (substitui horas e material)
-  const PROC = processoLinha(r.setor_origem);
+  const PROC = !multi && processoLinha(r.setor_origem);
+  if (multi && !fin && fichaCache) calcularProcessos(r, S.cfg, areaFicha);
   const areaMaq = PROC && r.produto ? areaFicha(r.produto, "", PROC.k) : 0;
   const pesoMaq = PROC ? num((S.cfg.pesos_maquinas || {})[r.produto]) : 0;
   if (!fin) {
@@ -484,6 +483,9 @@ async function editorRnc(el) {
         isel("reincidente", "Reincidente?", ["Não", "Sim"], r.reincidente, o)), "Identificação") +
       card(itxt("descricao", "Descrição do problema (o que, onde, quando, quanto) *", r.descricao, o), "Descrição");
   } else if (sec.startsWith("2")) {
+    if (multi) h += telaRetrabalho(r, S.cfg, FT, dis);
+    else {
+    if (!dis && !fin) h += alerta('info', 'Este registro usa o cálculo anterior. <button class="btn sm" id="e-converter">Usar múltiplos processos</button>');
     if (semFicha) h += alerta("info", "⏳ Carregando ficha técnica… os produtos aparecem em instantes.");
     const prods = Object.values(FT.produtos).map((p) => [p.codigo, `${p.codigo} — ${p.nome}`]);
     let ft = "";
@@ -543,6 +545,7 @@ async function editorRnc(el) {
           `<div class="metric"><div class="l">Custo de ${PROC.nome}</div><div class="v">${brl(num(r.custo_processo))}</div></div>`) +
         `<div class="caption">Tempo de linha fixo: o custo é calculado direto pela área, sem horas de retrabalho, máquinas ou material.</div>`, `Custo do processo — ${PROC.nome}`);
     }
+    }
   } else if (sec.startsWith("3")) {
     const A = S.acoes.filter((a) => a.rnc_id === r.id);
     const tarefas = A.length ? tabela([["id", "Ação"], ["tipo", "Tipo"], ["o_que", "O que", "wrap"], ["quem", "Quem"], ["prazo", "Prazo"], ["status", "Status"]],
@@ -576,9 +579,12 @@ async function editorRnc(el) {
   void podeAbrir;
 
   // ligações
+  if (multi) ligarRetrabalho(el, r, S.cfg, FT, () => editorRnc(el), dis);
+  if ($('#e-converter', el)) $('#e-converter', el).onclick = () => { converterRetrabalho(r, SETORES()); editorRnc(el); };
   const set = (k, v) => { const p = k.split("."); if (p.length === 1) r[k] = v; else if (p[0] === "porques") { r.porques = arr(r.porques); while (r.porques.length < 5) r.porques.push(""); r.porques[+p[1]] = v; } else (r[p[0]] ||= {})[p[1]] = v; };
   const RERENDER = ["origem", "setor_origem", "maquina", "produto_inteiro", "qtd_nc", "metodo_proc", "peso_retrab"];
   $$("[data-k]", el).forEach((i) => {
+    if (i.dataset.k.startsWith('_rt')) return;
     const ev = i.tagName === "SELECT" || i.type === "checkbox" ? "change" : "input";
     i.addEventListener(ev, () => {
       if (i.dataset.k === "_addmaq") { if (i.value) r.maquinas.push({ codigo: i.value, horas: 0 }); return editorRnc(el); }
@@ -591,6 +597,7 @@ async function editorRnc(el) {
     if (["qtd_nc", "peso_retrab"].includes(i.dataset.k)) i.addEventListener("change", () => editorRnc(el));
   });
   $$("[data-combo]", el).forEach((i) => i.addEventListener("change", () => {
+    if (i.dataset.combo.startsWith('_rt')) return;
     const v = comboValor(i), k = i.dataset.combo;
     if (k === "_addparte") { const d = FT.partes[r.produto]?.[v]; if (d) (r.pecas_subst ||= []).push({ chave: v, tipo: d.tipo, codigo: d.codigo, nome: nomeParte(r.produto, v, d), qtd: 1, valor_unit: d.valor_unit }); }
     else if (k === "produto") { if (v !== r.produto) { r.produto = v; r.pecas_subst = []; r.produto_inteiro = false; } }
@@ -612,6 +619,11 @@ async function editorRnc(el) {
     await db.excluirFoto(+b.dataset.fdel); E.fotos = await db.listarFotos(r.id); editorRnc(el); }));
   const msg = (t, m) => ($("#e-msg").innerHTML = alerta(t, esc(m)));
   const salvar = async (novoStatus) => {
+    if (multi && !fin) {
+      if (!fichaCache && r.processos_retrabalho.some(p => processoLinha(p.setor))) return msg('error', 'Aguarde o carregamento da ficha técnica antes de salvar os processos fixos.');
+      calcularProcessos(r, S.cfg, areaFicha);
+      const erro = erroRetrabalho(r, S.cfg); if (erro) return msg('error', erro);
+    }
     const d = JSON.parse(JSON.stringify(r));
     if (novoStatus) d.status = novoStatus;
     if (!d.setor_origem || !String(d.descricao || "").trim()) return msg("error", "Informe o setor de origem e a descrição.");
