@@ -152,3 +152,27 @@ table.edit th:first-child, table.edit thead th:first-child { background: var(--s
   .kv { gap: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }
+
+/* Seleção de retrabalho: grupos paralelos convergem antes da próxima etapa. */
+.rt-picker { margin-top: 20px; border-top: 1px solid var(--line, #dce1e7); padding-top: 16px; }
+.rt-picker > summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+.rt-count { display: inline-block; margin-left: 12px; font-size: 12px; font-weight: 400; color: var(--muted, #687587); }
+.rt-flow { max-width: 680px; margin: 24px auto; }
+.rt-stage-label { font-size: 11px; color: var(--muted, #687587); margin-bottom: 6px; text-align: center; }
+.rt-branches { display: grid; grid-template-columns: 1fr; max-width: 328px; margin: auto; gap: 16px; }
+.rt-branches.parallel { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: none; position: relative; }
+.rt-branches.parallel::before, .rt-branches.parallel::after { content: ''; position: absolute; left: 24%; right: 24%; border-top: 1px solid var(--line, #c7cfd9); }
+.rt-branches.parallel::before { top: -4px; }
+.rt-branches.parallel::after { bottom: -5px; }
+.rt-node { display: flex; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; min-height: 54px; padding: 12px 16px; border: 1px solid var(--line, #c7cfd9); border-radius: 8px; background: var(--surface, #fff); color: var(--ink, #182b42); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.rt-node:hover { border-color: var(--brand, #d4501e); }
+.rt-node.selected { border: 2px solid var(--brand, #d4501e); padding: 11px 15px; background: var(--brand-l, #fcf0e9); }
+.rt-node:disabled { cursor: default; opacity: 1; }
+.rt-node:focus-visible { outline: 3px solid var(--brand, #d4501e); outline-offset: 3px; }
+.rt-node small { display: block; font-size: 11px; margin-top: 3px; color: var(--muted, #687587); }
+.rt-check { display: grid; place-items: center; flex: 0 0 22px; height: 22px; border: 1px solid var(--line, #c7cfd9); border-radius: 50%; font-weight: 700; }
+.rt-node.selected .rt-check { background: var(--brand, #d4501e); color: #fff; border-color: transparent; }
+.rt-arrow { text-align: center; color: var(--muted, #687587); line-height: 24px; font-size: 22px; }
+.rt-extras { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.rt-apply { margin-top: 20px; }
+@media (max-width: 760px) { .rt-node { padding: 10px; gap: 7px; font-size: 12px; } .rt-node.selected { padding: 9px; } .rt-branches { gap: 10px; } .rt-count { margin: 8px 0 0; display: block; } }
