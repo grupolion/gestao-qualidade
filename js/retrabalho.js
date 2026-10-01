@@ -1,4 +1,4 @@
-import { num, esc, brl, card, row, inum, isel, icombo, ichk, alerta, $, $$, comboValor } from './ui.js?v=20261001-busca4';
+import { num, esc, brl, card, row, inum, isel, icombo, ichk, alerta, $, $$, comboValor } from './ui.js?v=20261001-touch5';
 
 export function processoLinha(setor) {
   const s = String(setor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();

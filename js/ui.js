@@ -126,16 +126,41 @@ function comboFechar(except) {
 }
 document.addEventListener("focusin", (e) => { if (e.target.matches?.("[data-combo]")) { comboFechar(); comboAbrir(e.target); } });
 document.addEventListener("input", (e) => { if (e.target.matches?.("[data-combo]")) comboAbrir(e.target); });
+function comboSelecionar(op) {
+  if (!op.isConnected) return;
+  const inp = op.closest('.combo').querySelector('input');
+  if (inp.disabled) return;
+  inp.value = op.textContent; op.parentElement.hidden = true;
+  inp.dispatchEvent(new Event('change', { bubbles: true }));
+  if (inp.isConnected) inp.blur();
+}
+let comboGesto = null;
+// O blur nativo durante um toque não pode redesenhar a lista que está sendo rolada.
+document.addEventListener('change', e => {
+  if (comboGesto && e.target === comboGesto.inp) e.stopImmediatePropagation();
+}, true);
 document.addEventListener("pointerdown", (e) => {
   const op = e.target.closest?.(".combo-op");
   if (op) {
-    e.preventDefault();
-    const inp = op.closest(".combo").querySelector("input");
-    inp.value = op.textContent; op.parentElement.hidden = true;
-    inp.dispatchEvent(new Event("change", { bubbles: true }));
-    if (inp.isConnected) inp.blur();
+    if (e.pointerType === 'mouse') {
+      if (e.button !== 0) return;
+      e.preventDefault(); comboSelecionar(op);
+    } else {
+      if (comboGesto) { comboGesto.moveu = true; return; }
+      comboGesto = { id: e.pointerId, op, inp: op.closest('.combo').querySelector('input'), x: e.clientX, y: e.clientY, scroll: op.parentElement.scrollTop, moveu: false };
+    }
     return;
   }
   if (!e.target.closest?.(".combo")) comboFechar();
+});
+document.addEventListener('pointermove', e => {
+  if (comboGesto?.id === e.pointerId && Math.hypot(e.clientX - comboGesto.x, e.clientY - comboGesto.y) > 8) comboGesto.moveu = true;
+}, { passive: true });
+document.addEventListener('pointercancel', e => { if (comboGesto?.id === e.pointerId) comboGesto = null; });
+document.addEventListener('pointerup', e => {
+  if (comboGesto?.id !== e.pointerId) return;
+  const g = comboGesto; comboGesto = null;
+  if (g.moveu || Math.hypot(e.clientX - g.x, e.clientY - g.y) > 8 || g.op.parentElement.scrollTop !== g.scroll || e.target.closest?.('.combo-op') !== g.op) return;
+  e.preventDefault(); comboSelecionar(g.op);
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") comboFechar(); });
