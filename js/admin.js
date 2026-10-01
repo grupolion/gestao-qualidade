@@ -1,6 +1,6 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260930-area6";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-area6";
+import * as db from "./db.js?v=20260930-area7";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-area7";
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "📐 Áreas", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
@@ -160,7 +160,7 @@ function csvLer(txt) {
   const campos = (l) => { const out = []; let cur = "", q = false;
     for (let i = 0; i < l.length; i++) { const ch = l[i];
       if (q) { if (ch === '"' && l[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
-      else if (ch === '"') q = true; else if (ch === ";") { out.push(cur.trim()); cur = ""; } else cur += ch; }
+      else if (ch === '"' && !cur.trim()) q = true; else if (ch === ";") { out.push(cur.trim()); cur = ""; } else cur += ch; }
     out.push(cur.trim()); return out; };
   const [cab, ...ls] = linhas; const H = campos(cab);
   return ls.map((l) => { const c = campos(l); return Object.fromEntries(H.map((h, i) => [h, c[i] ?? ""])); });
