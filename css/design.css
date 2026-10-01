@@ -175,4 +175,5 @@ table.edit th:first-child, table.edit thead th:first-child { background: var(--s
 .rt-arrow { text-align: center; color: var(--muted, #687587); line-height: 24px; font-size: 22px; }
 .rt-extras { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
 .rt-apply { margin-top: 20px; }
+.fluxo-processo { padding: 16px 0; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
 @media (max-width: 760px) { .rt-node { padding: 10px; gap: 7px; font-size: 12px; } .rt-node.selected { padding: 9px; } .rt-branches { gap: 10px; } .rt-count { margin: 8px 0 0; display: block; } }

@@ -1,4 +1,4 @@
-import { num, esc, brl, card, row, inum, isel, icombo, ichk, alerta, $, $$, comboValor } from './ui.js?v=20261001-diagrama2';
+import { num, esc, brl, card, row, inum, isel, icombo, ichk, alerta, $, $$, comboValor } from './ui.js?v=20261001-fluxoadmin3';
 
 export function processoLinha(setor) {
   const s = String(setor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -25,15 +25,43 @@ export const FLUXO_RETRABALHO = [
   [['inspecao-final', 'Inspeção Final']]
 ];
 const selecoes = new WeakMap(); // seleção provisória pertence ao registro em edição, não ao banco
+export function fluxoProcessos(cfg) {
+  return Array.isArray(cfg.fluxo_retrabalho?.grupos) ? cfg.fluxo_retrabalho.grupos : FLUXO_RETRABALHO;
+}
+export function erroFluxo(grupos) {
+  if (!Array.isArray(grupos) || !grupos.length) return 'Adicione pelo menos uma etapa ao diagrama.';
+  const ids = new Set(); let banho = -1, pintura = -1;
+  for (const [i, grupo] of grupos.entries()) {
+    if (!Array.isArray(grupo) || !grupo.length) return `Adicione um processo à etapa ${i + 1} ou remova a etapa vazia.`;
+    for (const node of grupo) {
+      if (!Array.isArray(node) || node.length < 2 || !String(node[0] || '').trim() || !String(node[1] || '').trim() || !String(node.length >= 3 ? node[2] : node[1] || '').trim()) return 'Informe o nome e o setor de cada processo.';
+      if (ids.has(node[0])) return 'Há processos com identificação repetida no diagrama.';
+      ids.add(node[0]);
+      const proc = processoLinha(node[2] || node[1]);
+      if (proc?.k === 'b') { if (banho >= 0) return 'Use apenas um banho químico no diagrama.'; banho = i; }
+      if (proc?.k === 'p') { if (pintura >= 0) return 'Use apenas uma pintura no diagrama.'; pintura = i; }
+    }
+  }
+  if (banho >= 0 && pintura <= banho) return 'O banho químico exige uma etapa de pintura depois dele.';
+  return '';
+}
+const completarSelecao = (ids, nodes) => {
+  const selecionados = new Set(ids), banho = nodes.find(n => processoLinha(n.setor)?.k === 'b'), pintura = nodes.find(n => processoLinha(n.setor)?.k === 'p');
+  if (banho && pintura && selecionados.has(banho.id)) selecionados.add(pintura.id);
+  return selecionados;
+};
 export function catalogoProcessos(cfg, ps = []) {
   const setores = Object.keys(cfg.setores || {});
-  const nodes = FLUXO_RETRABALHO.flat().map(([id, nome]) => {
-    const fixo = processoLinha(nome);
-    const setor = setores.find(s => normalizar(s) === normalizar(nome)) ||
+  const nodes = fluxoProcessos(cfg).flat().map(([id, nome, vinculo]) => {
+    const fixo = processoLinha(vinculo || nome);
+    const setor = vinculo || setores.find(s => normalizar(s) === normalizar(nome)) ||
       (fixo ? setores.find(s => processoLinha(s)?.k === fixo.k) : nome === 'Solda Manual' ? setores.find(s => normalizar(s) === 'solda') : null) || nome;
     return { id, nome, setor };
   });
-  for (const setor of [...setores, ...ps.map(p => p.setor)]) {
+  for (const p of ps) {
+    if (p.etapa_id && !nodes.some(n => n.id === p.etapa_id)) nodes.push({ id: p.etapa_id, nome: p.etapa_nome || p.setor, setor: p.setor, historico: true });
+  }
+  for (const setor of [...(cfg.fluxo_retrabalho ? [] : setores), ...ps.filter(p => !p.etapa_id).map(p => p.setor)]) {
     if (!nodes.some(n => n.setor === setor || (processoLinha(setor) && processoLinha(n.setor)?.k === processoLinha(setor)?.k))) nodes.push({ id: `extra:${setor}`, nome: setor, setor });
   }
   return nodes;
@@ -52,13 +80,13 @@ function selecaoAtual(r, cfg) {
 }
 export function selecaoPendente(r, cfg) {
   const estado = selecoes.get(r); if (!estado) return false;
-  const ids = new Set(estado.ids); if (ids.has('banho')) ids.add('pintura');
+  const ids = completarSelecao(estado.ids, catalogoProcessos(cfg, r.processos_retrabalho));
   const aplicados = idsAplicados(r.processos_retrabalho, catalogoProcessos(cfg, r.processos_retrabalho));
   return ids.size !== aplicados.size || [...ids].some(id => !aplicados.has(id));
 }
 export function aplicarProcessos(r, cfg, ids) {
-  const nodes = catalogoProcessos(cfg, r.processos_retrabalho), selecionados = new Set(ids);
-  if (selecionados.has('banho')) selecionados.add('pintura');
+  const nodes = catalogoProcessos(cfg, r.processos_retrabalho), selecionados = completarSelecao(ids, nodes);
+  const temBanho = nodes.some(n => processoLinha(n.setor)?.k === 'b' && selecionados.has(n.id));
   const anteriores = new Map(), usados = new Set();
   for (const p of r.processos_retrabalho) {
     const node = nodes.find(n => n.id === p.etapa_id) || nodes.find(n => n.setor === p.setor && !usados.has(n.id));
@@ -66,22 +94,24 @@ export function aplicarProcessos(r, cfg, ids) {
   }
   const banho = r.processos_retrabalho.find(p => processoLinha(p.setor)?.k === 'b');
   r.processos_retrabalho = nodes.filter(n => selecionados.has(n.id)).map(n => {
-    const p = anteriores.get(n.id) || { setor: n.setor, horas_homem: 0, maquinas: [], pecas: [], ...(n.id === 'pintura' && selecionados.has('banho') ? { mesmo_banho: true } : {}) };
+    const p = anteriores.get(n.id) || { setor: n.setor, etapa_nome: n.nome, horas_homem: 0, maquinas: [], pecas: [], ...(processoLinha(n.setor)?.k === 'p' && temBanho ? { mesmo_banho: true } : {}) };
     p.etapa_id = n.id;
-    if (n.id === 'pintura' && !selecionados.has('banho') && p.mesmo_banho && banho) Object.assign(p, { metodo_proc: banho.metodo_proc, produto_inteiro: banho.produto_inteiro, peso_retrab: banho.peso_retrab, pecas: structuredClone(banho.pecas || []), mesmo_banho: false });
+    if (processoLinha(n.setor)?.k === 'p' && !temBanho && p.mesmo_banho && banho) Object.assign(p, { metodo_proc: banho.metodo_proc, produto_inteiro: banho.produto_inteiro, peso_retrab: banho.peso_retrab, pecas: structuredClone(banho.pecas || []), mesmo_banho: false });
     return p;
   });
   selecoes.set(r, { ids: selecionados, aberta: false });
 }
 function diagramaProcessos(r, cfg, dis) {
   const nodes = catalogoProcessos(cfg, r.processos_retrabalho), estado = selecaoAtual(r, cfg);
-  const ids = new Set(estado.ids); if (ids.has('banho')) ids.add('pintura');
+  const ids = completarSelecao(estado.ids, nodes);
+  const banhoSelecionado = nodes.some(n => processoLinha(n.setor)?.k === 'b' && ids.has(n.id));
   const botao = (id) => {
-    const n = nodes.find(n => n.id === id), on = ids.has(id), obrigatoria = id === 'pintura' && ids.has('banho');
-    return `<button type="button" class="rt-node${on ? ' selected' : ''}" data-rt-node="${esc(id)}" aria-pressed="${on}" ${dis || obrigatoria ? 'disabled' : ''}><span class="rt-check" aria-hidden="true">${on ? '✓' : '+'}</span><span>${esc(n.nome)}${id.startsWith('solda-manual') ? `<small>${id.endsWith('1') ? 'Antes' : 'Após'} a montagem da estrutura</small>` : obrigatoria ? '<small>Incluída pelo banho</small>' : ''}</span></button>`;
+    const n = nodes.find(n => n.id === id), on = ids.has(id), obrigatoria = processoLinha(n.setor)?.k === 'p' && banhoSelecionado;
+    return `<button type="button" class="rt-node${on ? ' selected' : ''}" data-rt-node="${esc(id)}" aria-pressed="${on}" ${dis || obrigatoria ? 'disabled' : ''}><span class="rt-check" aria-hidden="true">${on ? '✓' : '+'}</span><span>${esc(n.nome)}${!cfg.fluxo_retrabalho && id.startsWith('solda-manual') ? `<small>${id.endsWith('1') ? 'Antes' : 'Após'} a montagem da estrutura</small>` : obrigatoria ? '<small>Incluída pelo banho</small>' : ''}</span></button>`;
   };
-  const extras = nodes.filter(n => n.id.startsWith('extra:'));
-  return `<details class="rt-picker" ${estado.aberta ? 'open' : ''}><summary>Selecionar processos no diagrama <span class="rt-count">${ids.size} selecionado(s)</span></summary><p class="caption">Clique nas etapas realizadas. Processos lado a lado são paralelos. Depois clique em Aplicar processos.</p><div class="rt-flow" aria-label="Fluxo de produção">${FLUXO_RETRABALHO.map((grupo, i) => `<div class="rt-stage"><div class="rt-stage-label">${String(i + 1).padStart(2, '0')}${grupo.length > 1 ? ' · Em paralelo' : ''}</div><div class="rt-branches${grupo.length > 1 ? ' parallel' : ''}">${grupo.map(([id]) => botao(id)).join('')}</div></div>${i < FLUXO_RETRABALHO.length - 1 ? '<div class="rt-arrow" aria-hidden="true">↓</div>' : ''}`).join('')}</div>${extras.length ? `<div class="caption">Outros processos cadastrados</div><div class="rt-extras">${extras.map(n => botao(n.id)).join('')}</div>` : ''}${dis ? '' : '<div class="btnrow rt-apply"><button type="button" class="btn primary" id="rt-aplicar">Aplicar processos</button><span class="caption" id="rt-pendente" aria-live="polite"></span></div>'}</details>`;
+  const grupos = fluxoProcessos(cfg), noFluxo = new Set(grupos.flat().map(n => n[0]));
+  const extras = nodes.filter(n => !noFluxo.has(n.id));
+  return `<details class="rt-picker" ${estado.aberta ? 'open' : ''}><summary>Selecionar processos no diagrama <span class="rt-count">${ids.size} selecionado(s)</span></summary><p class="caption">Clique nas etapas realizadas. Processos lado a lado são paralelos. Depois clique em Aplicar processos.</p><div class="rt-flow" aria-label="Fluxo de produção">${grupos.map((grupo, i) => `<div class="rt-stage"><div class="rt-stage-label">${String(i + 1).padStart(2, '0')}${grupo.length > 1 ? ' · Em paralelo' : ''}</div><div class="rt-branches${grupo.length > 1 ? ' parallel' : ''}">${grupo.map(([id]) => botao(id)).join('')}</div></div>${i < grupos.length - 1 ? '<div class="rt-arrow" aria-hidden="true">↓</div>' : ''}`).join('')}</div>${extras.length ? `<div class="caption">Processos preservados deste registro</div><div class="rt-extras">${extras.map(n => botao(n.id)).join('')}</div>` : ''}${dis ? '' : '<div class="btnrow rt-apply"><button type="button" class="btn primary" id="rt-aplicar">Aplicar processos</button><span class="caption" id="rt-pendente" aria-live="polite"></span></div>'}</details>`;
 }
 export const maquinasSetor = (cfg, setor) => (cfg.maquinas || []).filter(m => m.setor === setor)
   .map(m => ({ ...m, codigo: m.nome || m.descricao || m.codigo }));
@@ -178,8 +208,8 @@ export function telaRetrabalho(r, cfg, ft, dis) {
         (!maq.length ? '<div class="caption">Nenhuma máquina cadastrada para este processo.</div>' : '') +
         `<div class="caption">Custo da etapa: ${brl(positivo(p.horas_homem) * num(p.custo_hora) + (p.maquinas || []).reduce((s, m) => s + positivo(m.horas) * num(m.valor_hora), 0))}</div>`;
     }
-    const passagem = p.etapa_id?.startsWith('solda-manual') ? (p.etapa_id.endsWith('1') ? ' · antes da montagem' : ' · após a montagem') : '';
-    return `<section data-rt-etapa="${esc(p.etapa_id || p.setor)}">${card(body + botoes, `${i + 1} · ${esc(p.setor)}${passagem}`)}</section>`;
+    const passagem = !cfg.fluxo_retrabalho && p.etapa_id?.startsWith('solda-manual') ? (p.etapa_id.endsWith('1') ? ' · antes da montagem' : ' · após a montagem') : '';
+    return `<section data-rt-etapa="${esc(p.etapa_id || p.setor)}">${card(body + botoes, `${i + 1} · ${esc(p.etapa_nome || p.setor)}${passagem}`)}</section>`;
   }).join('');
   h += card(inum('custo_material', 'Material substituído / refugo (R$)', r.custo_material, { ...o, help: 'Informe apenas o material efetivamente substituído ou refugado. As peças selecionadas em banho/pintura definem a área e não são cobradas como material.' }) +
     row('c4 keep2', `<div>Horas-homem<br><b>${brl(totais.homem)}</b></div>`, `<div>Horas-máquina<br><b>${brl(totais.maquina)}</b></div>`, `<div>Banho / pintura<br><b>${brl(totais.processo)}</b></div>`, `<div class="metric"><div class="l">Total da ocorrência</div><div class="v" id="e-custo">${brl(totais.homem + totais.maquina + totais.processo + totais.material)}</div></div>`), 'Custo consolidado');
@@ -199,9 +229,10 @@ export function ligarRetrabalho(el, r, cfg, ft, render, dis) {
   $$('[data-rt-node]', el).forEach(b => b.onclick = () => {
     const id = b.dataset.rtNode;
     if (estado.ids.has(id)) estado.ids.delete(id); else estado.ids.add(id);
-    const ids = new Set(estado.ids); if (ids.has('banho')) ids.add('pintura');
+    const nodes = catalogoProcessos(cfg, ps), ids = completarSelecao(estado.ids, nodes);
+    const banhoSelecionado = nodes.some(n => processoLinha(n.setor)?.k === 'b' && ids.has(n.id));
     $$('[data-rt-node]', el).forEach(node => {
-      const on = ids.has(node.dataset.rtNode), obrigatoria = node.dataset.rtNode === 'pintura' && ids.has('banho');
+      const on = ids.has(node.dataset.rtNode), obrigatoria = processoLinha(nodes.find(n => n.id === node.dataset.rtNode)?.setor)?.k === 'p' && banhoSelecionado;
       node.classList.toggle('selected', on); node.setAttribute('aria-pressed', String(on)); node.disabled = obrigatoria;
       $('.rt-check', node).textContent = on ? '✓' : '+';
     });

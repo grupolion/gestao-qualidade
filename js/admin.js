@@ -1,8 +1,9 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20261001-diagrama2";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20261001-diagrama2";
+import * as db from "./db.js?v=20261001-fluxoadmin3";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20261001-fluxoadmin3";
+import { editorFluxo } from './fluxo-admin.js?v=20261001-fluxoadmin3';
 
-const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "📐 Áreas", "🔒 Segurança", "🗑 Dados"];
+const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "📐 Áreas", "🔒 Segurança", "🗑 Dados", "Diagrama de processos"];
 let aba = 0;
 
 export function paginaAdmin(el, ctx) {
@@ -11,7 +12,7 @@ export function paginaAdmin(el, ctx) {
   $$("[data-t]", el).forEach((b) => (b.onclick = () => { aba = +b.dataset.t; paginaAdmin(el, ctx); }));
   const box = $("#ad");
   const again = async () => { await ctx.recarregarCfg(); paginaAdmin(el, ctx); };
-  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), fichaTec, areasCalc, seguranca, dados][aba](box, ctx, again);
+  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), fichaTec, areasCalc, seguranca, dados, editorFluxo][aba](box, ctx, again);
 }
 const salvarCfg = async (k, v, again, msg = "Salvo.") => {
   try { await db.salvarConfig(k, v); toast(msg); await again(); } catch (e) { toast("Erro: " + e.message); }
