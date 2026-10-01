@@ -1,6 +1,6 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20260930-area7";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20260930-area7";
+import * as db from "./db.js?v=20261001-area8";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20261001-area8";
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "📐 Áreas", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
@@ -342,6 +342,7 @@ async function areasCalc(box, ctx) {
       <tbody>${linhas || '<tr><td colspan="12">Sem linhas de material para este produto.</td></tr>'}</tbody>
       <tfoot><tr><th colspan="10">Total (usado no app)</th><th class="num">${f(tb, 3)}</th><th class="num">${f(tp, 3)}</th></tr>
       <tr><td colspan="10">Total sem dividir por 1,06 (comparação)</td><td class="num">${f(tb0, 3)}</td><td class="num">${f(tp0, 3)}</td></tr></tfoot></table></div>` +
+      (L.some((l) => !num(l[2])) ? alerta("warn", `${L.filter((l) => !num(l[2])).length} linha(s) com consumo 0 na ficha gravada no banco — a ficha foi importada antes da correção do leitor. Reimporte a view_ficha_tecnica.txt (Ctrl+F5 antes).`) : "") +
       (sem ? `<div class="caption">${sem} linha(s) com material fora do area_tubos.csv (não entram na área).</div>` : ""), "Itens e cálculo");
   }
   box.innerHTML = h;
