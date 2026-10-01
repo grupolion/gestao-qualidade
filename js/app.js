@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20261001-area12";
+import * as db from "./db.js?v=20261001-area13";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area12";
-import { paginaAdmin } from "./admin.js?v=20261001-area12";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area13";
+import { paginaAdmin } from "./admin.js?v=20261001-area13";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -471,7 +471,7 @@ async function editorRnc(el) {
   const tit = novo ? "Nova não conformidade" : `${trat ? "Tratativa" : "Apontamento"} ${r.id}`;
   let h = `<div class="btnrow"><button class="btn" id="e-volta">← Voltar</button></div>` + heading(tit, novo ? "Preencha os campos com *. Salve as alterações antes de sair." : `Etapa: ${r.status}`) +
     (dis ? alerta("info", "Registro encerrado — somente o administrador pode alterar.") : "") +
-    `<div class="tabs">${secs.map((s, i) => `<button data-a="${i}" class="${i === E.aba ? "on" : ""}">${s}</button>`).join("")}</div>`;
+    `<div class="tabs">${secs.map((s, i) => `<button data-a="${i}" class="${i === E.aba ? "on" : ""}">${i + 1} · ${s.slice(4)}</button>`).join("")}</div>`;
   const sec = secs[E.aba]; E._sec = sec[0];
   const o = { dis };
   if (sec.startsWith("1")) {
