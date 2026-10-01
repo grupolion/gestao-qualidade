@@ -55,12 +55,12 @@ export function icombo(k, label, opts, val, o = {}) {
   const id = uid(), dl = uid();
   const op = opts.map((x) => (Array.isArray(x) ? x : [x, x]));
   const cur = op.find(([v]) => v === val);
-  return `<div class="field">${lab(id, label, o.help)}<input id="${id}" list="${dl}" data-combo="${esc(k)}" ${o.dis ? "disabled" : ""}
+  return `<div class="field">${lab(id, label, o.help)}<div class="combo"><input id="${id}" data-dl="${dl}" data-combo="${esc(k)}" ${o.dis ? "disabled" : ""}
      value="${esc(cur ? cur[1] : val || "")}" placeholder="${esc(o.ph || "Digite para buscar…")}" autocomplete="off">
-    <datalist id="${dl}">${op.map(([v, t]) => `<option data-v="${esc(v)}" value="${esc(t)}"></option>`).join("")}</datalist></div>`;
+    <datalist id="${dl}">${op.map(([v, t]) => `<option data-v="${esc(v)}" value="${esc(t)}"></option>`).join("")}</datalist><div class="combo-list" hidden></div></div></div>`;
 }
 export function comboValor(el) {
-  const o = [...el.list.options].find((x) => x.value === el.value);
+  const o = [...document.getElementById(el.dataset.dl).options].find((x) => x.value === el.value);
   return o ? o.dataset.v : el.value;
 }
 
@@ -109,3 +109,29 @@ export function baixarCSV(nome, cols, rows) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + txt], { type: "text/csv;charset=utf-8" })); a.download = nome; a.click();
 }
+
+// lista suspensa própria (datalist no iPhone vira sugestão do teclado e corta o texto)
+function comboAbrir(inp) {
+  const box = inp.parentElement.querySelector(".combo-list"), q = inp.value.trim().toLowerCase();
+  const ops = [...document.getElementById(inp.dataset.dl).options].map((o) => o.value)
+    .filter((t) => !q || t.toLowerCase().includes(q)).slice(0, 80);
+  box.innerHTML = ops.length ? ops.map((t) => `<div class="combo-op">${esc(t)}</div>`).join("") : `<div class="combo-vazio">Nenhum resultado</div>`;
+  box.hidden = false;
+}
+function comboFechar(except) {
+  document.querySelectorAll(".combo-list").forEach((b) => { if (b !== except) b.hidden = true; });
+}
+document.addEventListener("focusin", (e) => { if (e.target.matches?.("[data-combo]")) { comboFechar(); comboAbrir(e.target); } });
+document.addEventListener("input", (e) => { if (e.target.matches?.("[data-combo]")) comboAbrir(e.target); });
+document.addEventListener("pointerdown", (e) => {
+  const op = e.target.closest?.(".combo-op");
+  if (op) {
+    e.preventDefault();
+    const inp = op.closest(".combo").querySelector("input");
+    inp.value = op.textContent; op.parentElement.hidden = true; inp.blur();
+    inp.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
+  if (!e.target.closest?.(".combo")) comboFechar();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") comboFechar(); });
