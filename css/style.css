@@ -18,7 +18,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .main { flex: 1; margin-left: var(--sb); min-width: 0; }
 .container { max-width: 1440px; margin: 0 auto; padding: 3rem 2.5rem 4rem; }
 .topbar { display: none; }
-.brand { background: #182b42; border-radius: 12px; padding: 18px 22px; width: fit-content; max-width: 100%; }
+.brand { padding: 4px 0; width: fit-content; max-width: 100%; }
 .brand img { display: block; width: 160px; max-width: 100%; height: auto; }
 .nav { display: flex; flex-direction: column; gap: .35rem; }
 .nav button { text-align: left; background: none; border: 0; padding: .7rem .8rem; border-radius: .6rem; font: inherit; color: var(--ink); cursor: pointer; }
