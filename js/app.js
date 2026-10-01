@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20261001-area15";
+import * as db from "./db.js?v=20261001-area16";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area15";
-import { paginaAdmin } from "./admin.js?v=20261001-area15";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area16";
+import { paginaAdmin } from "./admin.js?v=20261001-area16";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";

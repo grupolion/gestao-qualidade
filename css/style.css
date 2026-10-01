@@ -152,9 +152,9 @@ table.edit td:not(:first-child) input { min-width: 110px; }
 .kcol.drop { outline: 2px dashed var(--brand); background: #fff4ec; } .kcard[data-drag] { cursor: grab; user-select: none; -webkit-user-select: none; }
 
 .combo { position: relative; }
-.combo-list { position: absolute; z-index: 50; left: 0; right: 0; top: calc(100% + 4px); max-height: 50vh; overflow-y: auto;
+.combo-list { color-scheme: light; position: absolute; z-index: 50; left: 0; right: 0; top: calc(100% + 4px); max-height: 50vh; overflow-y: auto;
   background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: .6rem; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
-.combo-op { padding: .7rem .8rem; white-space: normal; word-break: break-word; line-height: 1.3; cursor: pointer; border-bottom: 1px solid var(--line, #eee); }
+.combo-op { color: #182b42 !important; background: #fff; padding: .7rem .8rem; white-space: normal; word-break: break-word; line-height: 1.3; cursor: pointer; border-bottom: 1px solid var(--line, #eee); }
 .combo-op:last-child { border-bottom: 0; }
-.combo-op:hover { background: var(--bg, #f3f3f3); }
-.combo-vazio { padding: .7rem .8rem; opacity: .6; }
+.combo-op:hover, .combo-op:active { background: #f4f7fb; }
+.combo-vazio { color: #596b7f !important; padding: .7rem .8rem; opacity: .6; }
