@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20261001-area11";
+import * as db from "./db.js?v=20261001-area12";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area11";
-import { paginaAdmin } from "./admin.js?v=20261001-area11";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area12";
+import { paginaAdmin } from "./admin.js?v=20261001-area12";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -400,9 +400,9 @@ function paginaRnc(el) {
 }
 // nome da peça + comprimento do tubo (consumo/1,06, já em metros)
 function nomeParte(prod, chave, d) {
-  const A = S.cfg.area_materiais || {}, L = (FT.produtos[prod] || {}).linhas || [], cod = chave.slice(1);
-  const ms = [...new Set(L.filter((l) => (chave[0] === "M" ? l[1] === cod : l[0] === cod) && A[l[1]]?.tipo === "tubo" && l[2] > 0)
-    .map((l) => l[2].toLocaleString("pt-BR", { maximumFractionDigits: 4 }) + " m"))];
+  const A = S.cfg.area_materiais || {}, L = ((fichaCache || {}).produtos?.[prod] || {}).linhas || [], cod = chave.slice(1);
+  const ms = [...new Set(L.filter((l) => (chave[0] === "M" ? l[1] === cod : l[0] === cod) && A[l[1]]?.tipo === "tubo" && +l[2] > 0)
+    .map((l) => (+l[2]).toLocaleString("pt-BR", { maximumFractionDigits: 4 }) + " m"))];
   return ms.length ? `${d.nome} (${ms.join(" / ")})` : d.nome;
 }
 function novaRnc() {
