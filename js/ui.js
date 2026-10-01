@@ -60,7 +60,8 @@ export function icombo(k, label, opts, val, o = {}) {
     <datalist id="${dl}">${op.map(([v, t]) => `<option data-v="${esc(v)}" value="${esc(t)}"></option>`).join("")}</datalist><div class="combo-list" hidden></div></div></div>`;
 }
 export function comboValor(el) {
-  const o = [...document.getElementById(el.dataset.dl).options].find((x) => x.value === el.value);
+  const lista = el.closest('.combo')?.querySelector('datalist') || document.getElementById(el.dataset.dl);
+  const o = [...(lista?.options || [])].find((x) => x.value === el.value);
   return o ? o.dataset.v : el.value;
 }
 
@@ -112,9 +113,11 @@ export function baixarCSV(nome, cols, rows) {
 
 // lista suspensa própria (datalist no iPhone vira sugestão do teclado e corta o texto)
 function comboAbrir(inp) {
-  const box = inp.parentElement.querySelector(".combo-list"), q = inp.value.trim().toLowerCase();
+  if (inp.disabled || !inp.isConnected) return;
+  const busca = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, ' ');
+  const box = inp.parentElement.querySelector(".combo-list"), q = busca(inp.value);
   const ops = [...document.getElementById(inp.dataset.dl).options].map((o) => o.value)
-    .filter((t) => !q || t.toLowerCase().includes(q)).slice(0, 80);
+    .filter((t) => !q || busca(t).includes(q)).slice(0, 80);
   box.innerHTML = ops.length ? ops.map((t) => `<div class="combo-op">${esc(t)}</div>`).join("") : `<div class="combo-vazio">Nenhum resultado</div>`;
   box.hidden = false;
 }
@@ -128,8 +131,9 @@ document.addEventListener("pointerdown", (e) => {
   if (op) {
     e.preventDefault();
     const inp = op.closest(".combo").querySelector("input");
-    inp.value = op.textContent; op.parentElement.hidden = true; inp.blur();
+    inp.value = op.textContent; op.parentElement.hidden = true;
     inp.dispatchEvent(new Event("change", { bubbles: true }));
+    if (inp.isConnected) inp.blur();
     return;
   }
   if (!e.target.closest?.(".combo")) comboFechar();

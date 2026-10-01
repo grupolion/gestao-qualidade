@@ -1,7 +1,7 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20261001-fluxoadmin3";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20261001-fluxoadmin3";
-import { editorFluxo } from './fluxo-admin.js?v=20261001-fluxoadmin3';
+import * as db from "./db.js?v=20261001-busca4";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20261001-busca4";
+import { editorFluxo } from './fluxo-admin.js?v=20261001-busca4';
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "📐 Áreas", "🔒 Segurança", "🗑 Dados", "Diagrama de processos"];
 let aba = 0;

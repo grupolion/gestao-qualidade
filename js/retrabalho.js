@@ -1,4 +1,4 @@
-import { num, esc, brl, card, row, inum, isel, icombo, ichk, alerta, $, $$, comboValor } from './ui.js?v=20261001-fluxoadmin3';
+import { num, esc, brl, card, row, inum, isel, icombo, ichk, alerta, $, $$, comboValor } from './ui.js?v=20261001-busca4';
 
 export function processoLinha(setor) {
   const s = String(setor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -175,12 +175,12 @@ export function erroRetrabalho(r, cfg) {
   return '';
 }
 
-export function telaRetrabalho(r, cfg, ft, dis) {
+export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
   const ps = r.processos_retrabalho;
   const o = { dis }, temBanho = ps.some(p => processoLinha(p.setor)?.k === 'b');
   const totais = custosRetrabalho(r);
   let h = card(alerta('info', 'Selecione os processos realizados no retrabalho. Banho químico inclui pintura. As horas são informadas por processo manual; banho e pintura têm custo fixo por m².') +
-    icombo('_rtproduto', 'Produto / Máquina (ficha técnica)', Object.values(ft.produtos).map(p => [p.codigo, `${p.codigo} — ${p.nome}`]), r.produto, o) +
+    icombo('_rtproduto', 'Produto / Máquina (ficha técnica)', Object.values(ft.produtos).map(p => [p.codigo, `${p.codigo} — ${p.nome}`]), r.produto, { ...o, dis: dis || estadoFicha.carregando || !!estadoFicha.erro || !Object.keys(ft.produtos).length, ph: estadoFicha.carregando && !estadoFicha.erro ? 'Carregando máquinas…' : 'Pesquise por nome ou código…' }) +
     diagramaProcessos(r, cfg, dis), 'Fluxo de retrabalho');
   h += ps.map((p, i) => {
     const proc = processoLinha(p.setor), k = field => `_rt.${i}.${field}`;
@@ -221,6 +221,7 @@ export function ligarRetrabalho(el, r, cfg, ft, render, dis) {
   const ps = r.processos_retrabalho;
   $('[data-combo="_rtproduto"]', el)?.addEventListener('change', e => {
     const v = comboValor(e.target);
+    if (v && !ft.produtos[v]) return;
     if (v !== r.produto) { r.produto = v; ps.forEach(p => { p.pecas = []; p.produto_inteiro = false; p.peso_retrab = 0; }); }
     render();
   });

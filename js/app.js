@@ -1,9 +1,9 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20261001-fluxoadmin3";
+import * as db from "./db.js?v=20261001-busca4";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-fluxoadmin3";
-import { paginaAdmin } from "./admin.js?v=20261001-fluxoadmin3";
-import { processoLinha, custosRetrabalho, calcularProcessos, converterRetrabalho, telaRetrabalho, ligarRetrabalho, erroRetrabalho, selecaoPendente } from './retrabalho.js?v=20261001-fluxoadmin3';
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-busca4";
+import { paginaAdmin } from "./admin.js?v=20261001-busca4";
+import { processoLinha, custosRetrabalho, calcularProcessos, converterRetrabalho, telaRetrabalho, ligarRetrabalho, erroRetrabalho, selecaoPendente } from './retrabalho.js?v=20261001-busca4';
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -44,7 +44,7 @@ export const nome = (login) => S.perfis.find((p) => p.login === login)?.nome || 
 const pessoas = () => S.perfis.filter((p) => p.ativo).map((p) => [p.login, `${p.nome} (${p.login})`]);
 const statusDe = (r) => LEGADO[r.status] || r.status || APONTADO;
 // setores com linha de tempo fixo (custo por m²); taxas podem ser sobrescritas em parametros
-export { processoLinha } from './retrabalho.js?v=20261001-fluxoadmin3';
+export { processoLinha } from './retrabalho.js?v=20261001-busca4';
 // área (m²) com a tabela atual de materiais — k: "b" banho (área total) | "p" pintura (tubo externa, chapa total)
 // chave vazia = máquina inteira; "C<cod>" = 1 componente; "M<cod>" = 1 unidade do material
 // chapa: consumo cheio (sem ÷1,06); tubo: consumo ÷1,06 (já gravado assim na ficha)
@@ -416,11 +416,12 @@ function fechar() { const v = S.edit?.volta || S.pagina; S.edit = null; S.draft 
 
 // ---------------- Editor RNC ----------------
 let fichaCache = null;
+let fichaErro = '';
 let fichaP = null; // carga única compartilhada (evita baixar a ficha duas vezes ao mesmo tempo)
 function ficha() {
   if (fichaCache) return Promise.resolve(fichaCache);
-  return (fichaP ||= db.carregarFicha().then((f) => (fichaCache = f))
-    .catch((e) => { console.warn(e); return { produtos: {}, partes: {} }; }).finally(() => { fichaP = null; }));
+  return (fichaP ||= db.carregarFicha().then((f) => { fichaErro = ''; return (fichaCache = f); })
+    .catch((e) => { console.warn(e); fichaErro = e.message || 'Não foi possível carregar a ficha técnica.'; return { produtos: {}, partes: {} }; }).finally(() => { fichaP = null; }));
 }
 
 async function editorRnc(el) {
@@ -429,7 +430,7 @@ async function editorRnc(el) {
   const semFicha = !fichaCache;
   if (!r.id && !Array.isArray(r.processos_retrabalho)) converterRetrabalho(r, SETORES());
   const multi = Array.isArray(r.processos_retrabalho);
-  if (semFicha) ficha().then(() => { if (fichaCache && S.edit === E && secsAtual(E) === "2") editorRnc(el); });
+  if (semFicha && !fichaErro) ficha().then(() => { if (S.edit === E && secsAtual(E) === "2") editorRnc(el); });
   const FT = fichaCache || { produtos: {}, partes: {} };
   const novo = !r.id, fin = FINAIS.includes(r.status), trat = r.status !== APONTADO;
   const dis = fin && !admin();
@@ -483,10 +484,11 @@ async function editorRnc(el) {
         isel("reincidente", "Reincidente?", ["Não", "Sim"], r.reincidente, o)), "Identificação") +
       card(itxt("descricao", "Descrição do problema (o que, onde, quando, quanto) *", r.descricao, o), "Descrição");
   } else if (sec.startsWith("2")) {
-    if (multi) h += telaRetrabalho(r, S.cfg, FT, dis);
+    if (semFicha) h += fichaErro ? alerta('error', `Não foi possível carregar as máquinas: ${esc(fichaErro)} <button class="btn sm" id="e-ficha-retry">Tentar novamente</button>`) : alerta('info', 'Carregando máquinas da ficha técnica… aguarde para pesquisar.');
+    else if (!Object.keys(FT.produtos).length) h += alerta('warn', 'A ficha técnica não contém máquinas. Confira a importação em Administração → Ficha técnica. <button class="btn sm" id="e-ficha-retry">Recarregar lista</button>');
+    if (multi) h += telaRetrabalho(r, S.cfg, FT, dis, { carregando: semFicha, erro: fichaErro });
     else {
     if (!dis && !fin) h += alerta('info', 'Este registro usa o cálculo anterior. <button class="btn sm" id="e-converter">Usar múltiplos processos</button>');
-    if (semFicha) h += alerta("info", "⏳ Carregando ficha técnica… os produtos aparecem em instantes.");
     const prods = Object.values(FT.produtos).map((p) => [p.codigo, `${p.codigo} — ${p.nome}`]);
     let ft = "";
     if (prods.length) {
@@ -579,6 +581,7 @@ async function editorRnc(el) {
   void podeAbrir;
 
   // ligações
+  if ($('#e-ficha-retry', el)) $('#e-ficha-retry', el).onclick = () => { fichaErro = ''; fichaCache = null; db.limparCache(); editorRnc(el); };
   if (multi) ligarRetrabalho(el, r, S.cfg, FT, () => editorRnc(el), dis);
   if ($('#e-converter', el)) $('#e-converter', el).onclick = () => { converterRetrabalho(r, SETORES()); editorRnc(el); };
   const set = (k, v) => { const p = k.split("."); if (p.length === 1) r[k] = v; else if (p[0] === "porques") { r.porques = arr(r.porques); while (r.porques.length < 5) r.porques.push(""); r.porques[+p[1]] = v; } else (r[p[0]] ||= {})[p[1]] = v; };
