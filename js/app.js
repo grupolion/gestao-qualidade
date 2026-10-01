@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20261001-area9";
+import * as db from "./db.js?v=20261001-area11";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area9";
-import { paginaAdmin } from "./admin.js?v=20261001-area9";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area11";
+import { paginaAdmin } from "./admin.js?v=20261001-area11";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -398,9 +398,16 @@ function paginaRnc(el) {
   $$("tr[data-i]", box).forEach((t) => (t.onclick = () => abrirRnc(rows[+t.dataset.i].id)));
   $("#r-csv").onclick = () => baixarCSV("rncs.csv", cols, rows);
 }
+// nome da peça + comprimento do tubo (consumo/1,06, já em metros)
+function nomeParte(prod, chave, d) {
+  const A = S.cfg.area_materiais || {}, L = (FT.produtos[prod] || {}).linhas || [], cod = chave.slice(1);
+  const ms = [...new Set(L.filter((l) => (chave[0] === "M" ? l[1] === cod : l[0] === cod) && A[l[1]]?.tipo === "tubo" && l[2] > 0)
+    .map((l) => l[2].toLocaleString("pt-BR", { maximumFractionDigits: 4 }) + " m"))];
+  return ms.length ? `${d.nome} (${ms.join(" / ")})` : d.nome;
+}
 function novaRnc() {
   if (!setUser().length) return toast("Você não tem setor liberado.");
-  navegar(MENU[1], { tipo: "rnc", rec: { data: hoje(), emitente: S.user.login, status: APONTADO, reincidente: "Não", eficaz: "Pendente", setor_origem: setUser().length === 1 ? setUser()[0] : "", porques: ["", "", "", "", ""], ishikawa: {}, pecas_subst: [] }, volta: S.pagina });
+  navegar(MENU[1], { tipo: "rnc", rec: { data: hoje(), turno: "Comercial", origem: "Interna (processo)", emitente: S.user.login, status: APONTADO, reincidente: "Não", eficaz: "Pendente", setor_origem: setUser().length === 1 ? setUser()[0] : "", porques: ["", "", "", "", ""], ishikawa: {}, pecas_subst: [] }, volta: S.pagina });
 }
 async function abrirRnc(id, volta) {
   const r = await db.obter("rnc", id);
@@ -491,7 +498,7 @@ async function editorRnc(el) {
         else {
           const pts = FT.partes[r.produto] || {};
           const sel = r.pecas_subst || [];
-          const opts = Object.entries(pts).filter(([k]) => !sel.some((s) => s.chave === k)).map(([k, p]) => [k, `${p.codigo} — ${p.nome} (${brl(p.valor_unit)}/${p.un || "un"})`]);
+          const opts = Object.entries(pts).filter(([k]) => !sel.some((s) => s.chave === k)).map(([k, p]) => [k, `${p.codigo} — ${nomeParte(r.produto, k, p)} (${brl(p.valor_unit)}/${p.un || "un"})`]);
           ft += icombo("_addparte", PROC ? "Peças retrabalhadas (busque" : "Partes substituídas (busque por nome, código ou desenho)", opts, "", { ...o, help: "Passe o cursor no ⓘ de cada parte para ver as características." }) +
             sel.map((p, i) => { const d = pts[p.chave] || p;
               const info = [`Tipo: ${d.tipo || ""}`, d.desenho ? `Desenho: ${d.desenho}` : "", d.grupo ? `Grupo: ${d.grupo}` : "", d.familia ? `Família: ${d.familia}` : "", `Unidade: ${d.un || "un"}`, d.qtd_no_produto ? `Qtd. por produto: ${d.qtd_no_produto}` : "", `Valor unitário: ${brl(p.valor_unit)}`].filter(Boolean).join("\n");
@@ -581,11 +588,11 @@ async function editorRnc(el) {
       if (RERENDER.includes(i.dataset.k) && ev === "change") editorRnc(el);
       else if ($("#e-custo")) $("#e-custo").textContent = brl(custo(r));
     });
-    if (i.dataset.k === "qtd_nc") i.addEventListener("change", () => editorRnc(el));
+    if (["qtd_nc", "peso_retrab"].includes(i.dataset.k)) i.addEventListener("change", () => editorRnc(el));
   });
   $$("[data-combo]", el).forEach((i) => i.addEventListener("change", () => {
     const v = comboValor(i), k = i.dataset.combo;
-    if (k === "_addparte") { const d = FT.partes[r.produto]?.[v]; if (d) (r.pecas_subst ||= []).push({ chave: v, tipo: d.tipo, codigo: d.codigo, nome: d.nome, qtd: 1, valor_unit: d.valor_unit }); }
+    if (k === "_addparte") { const d = FT.partes[r.produto]?.[v]; if (d) (r.pecas_subst ||= []).push({ chave: v, tipo: d.tipo, codigo: d.codigo, nome: nomeParte(r.produto, v, d), qtd: 1, valor_unit: d.valor_unit }); }
     else if (k === "produto") { if (v !== r.produto) { r.produto = v; r.pecas_subst = []; r.produto_inteiro = false; } }
     else if (k === "cod_peca") { r.cod_peca = v; const pc = (S.cfg.pecas || []).find((p) => p.codigo === v); if (pc && !r.desc_peca) r.desc_peca = pc.descricao; }
     else r[k] = v;
