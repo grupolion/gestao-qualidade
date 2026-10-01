@@ -1,8 +1,8 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20261001-area8";
+import * as db from "./db.js?v=20261001-area9";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area8";
-import { paginaAdmin } from "./admin.js?v=20261001-area8";
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-area9";
+import { paginaAdmin } from "./admin.js?v=20261001-area9";
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -51,12 +51,14 @@ export function processoLinha(setor) {
 }
 // área (m²) com a tabela atual de materiais — k: "b" banho (área total) | "p" pintura (tubo externa, chapa total)
 // chave vazia = máquina inteira; "C<cod>" = 1 componente; "M<cod>" = 1 unidade do material
+// chapa: consumo cheio (sem ÷1,06); tubo: consumo ÷1,06 (já gravado assim na ficha)
+const fatA = (a) => (a?.tipo === "chapa" ? 1.06 : 1);
 function areaFicha(prod, chave, k) {
   const A = S.cfg.area_materiais || {}, L = fichaCache?.produtos?.[prod]?.linhas || [];
-  if (!chave) return L.reduce((s, [, m, q, qc]) => s + q * qc * num(A[m]?.[k]), 0);
+  if (!chave) return L.reduce((s, [, m, q, qc]) => s + q * fatA(A[m]) * qc * num(A[m]?.[k]), 0);
   if (chave[0] === "M") return num(A[chave.slice(1)]?.[k]);
   const visto = new Set();
-  return L.reduce((s, [c, m, q, , prodRow]) => { if (prodRow || "C" + c !== chave || visto.has(m)) return s; visto.add(m); return s + q * num(A[m]?.[k]); }, 0);
+  return L.reduce((s, [c, m, q, , prodRow]) => { if (prodRow || "C" + c !== chave || visto.has(m)) return s; visto.add(m); return s + q * fatA(A[m]) * num(A[m]?.[k]); }, 0);
 }
 const fnum = (v) => num(v).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 export function custo(r) { return num(r.horas_homem) * num(r.custo_hora) + num(r.horas_maquina) * num(r.custo_hora_maquina) + num(r.custo_material) + num(r.custo_processo); }

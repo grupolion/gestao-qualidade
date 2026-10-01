@@ -1,6 +1,6 @@
 // Painel do administrador (porta do admin.py)
-import * as db from "./db.js?v=20261001-area8";
-import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20261001-area8";
+import * as db from "./db.js?v=20261001-area9";
+import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20261001-area9";
 
 const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "📐 Áreas", "🔒 Segurança", "🗑 Dados"];
 let aba = 0;
@@ -323,14 +323,14 @@ async function areasCalc(box, ctx) {
   const prods = Object.values(F.produtos).sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
   const f = (v, d = 4) => num(v).toLocaleString("pt-BR", { maximumFractionDigits: d });
   let h = card(isel("areaProd", "Produto / máquina", [["", "Selecione…"], ...prods.map((p) => [p.codigo, `${p.nome} (${p.codigo})`])], areaProd, { estrito: true }) +
-    `<div class="caption">Por linha da ficha: consumo = Qtd_Material × Qtd_Consumo ÷ 1,06; quantidade = consumo × Qtd do componente;
+    `<div class="caption">Por linha da ficha: quantidade = Qtd_Componente × Qtd_Consumo (tubo: ÷ 1,06; chapa: sem ÷ 1,06);
      área = quantidade × área unitária (tubo: m²/metro; chapa: m²/kg). Banho usa a área total; Pintura usa a área externa (tubo) ou m²/kg (chapa).</div>`, "Conferência de áreas");
   if (areaProd && F.produtos[areaProd]) {
     const P = F.partes[areaProd] || {}, L = F.produtos[areaProd].linhas || [];
     let tb = 0, tp = 0, tb0 = 0, tp0 = 0, sem = 0;
     const linhas = L.map(([c, m, q, qc, prodRow]) => {
       const a = A[m], mat = P["M" + m] || {}, comp = P["C" + c] || {};
-      const qtd = q * qc, b = a ? qtd * num(a.b) : 0, pp = a ? qtd * num(a.p) : 0;
+      const qtd = q * (a?.tipo === "chapa" ? 1.06 : 1) * qc, b = a ? qtd * num(a.b) : 0, pp = a ? qtd * num(a.p) : 0;
       if (a) { tb += b; tp += pp; tb0 += b * 1.06; tp0 += pp * 1.06; } else sem++;
       return `<tr${a ? "" : ' style="opacity:.55"'}><td>${prodRow ? "(produto)" : esc(c) + " — " + esc(comp.nome || "")}</td><td class="num">${f(qc)}</td>
         <td>${esc(m)} — ${esc(mat.nome || "")}</td><td>${esc(mat.un || "")}</td><td>${a ? (a.tipo === "chapa" ? "Chapa" : "Tubo") : "sem área"}</td>
