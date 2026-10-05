@@ -502,7 +502,7 @@ async function editorRnc(el) {
         else {
           const pts = FT.partes[r.produto] || {};
           const sel = r.pecas_subst || [];
-          const opts = Object.entries(pts).filter(([k]) => !sel.some((s) => s.chave === k)).map(([k, p]) => [k, `${p.codigo} — ${nomeParte(r.produto, k, p)} (${brl(p.valor_unit)}/${p.un || "un"})`]);
+          const opts = Object.entries(pts).filter(([k]) => !sel.some((s) => s.chave === k)).map(([k, p]) => [k, `${p.codigo} — ${nomeParte(r.produto, k, p)} (${brl(p.valor_unit)}/${p.un || "un"})`]).sort((x, y) => x[1].localeCompare(y[1], "pt-BR", { numeric: true, sensitivity: "base" }));
           ft += icombo("_addparte", PROC ? "Peças retrabalhadas (busque" : "Partes substituídas (busque por nome, código ou desenho)", opts, "", { ...o, help: "Passe o cursor no ⓘ de cada parte para ver as características." }) +
             sel.map((p, i) => { const d = pts[p.chave] || p;
               const info = [`Tipo: ${d.tipo || ""}`, d.desenho ? `Desenho: ${d.desenho}` : "", d.grupo ? `Grupo: ${d.grupo}` : "", d.familia ? `Família: ${d.familia}` : "", `Unidade: ${d.un || "un"}`, d.qtd_no_produto ? `Qtd. por produto: ${d.qtd_no_produto}` : "", `Valor unitário: ${brl(p.valor_unit)}`].filter(Boolean).join("\n");

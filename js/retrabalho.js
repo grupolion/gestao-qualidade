@@ -175,6 +175,7 @@ export function erroRetrabalho(r, cfg) {
   return '';
 }
 
+const ordemAlfa = (a, b) => String(a).localeCompare(String(b), 'pt-BR', { numeric: true, sensitivity: 'base' });
 export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
   const ps = r.processos_retrabalho;
   const o = { dis }, temBanho = ps.some(p => processoLinha(p.setor)?.k === 'b');
@@ -193,7 +194,7 @@ export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
         if (p.metodo_proc === 'peso') body += inum(k('peso_retrab'), 'Peso total retrabalhado (kg)', p.peso_retrab, o) + (!num(cfg.pesos_maquinas?.[r.produto]) ? alerta('warn', 'Sem peso cadastrado para este produto.') : '');
         else {
           body += ichk(k('produto_inteiro'), 'Máquina inteira × Qtd NC', p.produto_inteiro, o);
-          if (!p.produto_inteiro) body += isel(k('addparte'), 'Adicionar peça retrabalhada', Object.entries(ft.partes[r.produto] || {}).filter(([chave, x]) => !chave.startsWith('_') && x && !p.pecas?.some(y => y.chave === chave)).map(([chave, x]) => [chave, `${x.codigo} — ${x.nome}`]), '', { ...o, ph: 'Selecione uma peça…' }) +
+          if (!p.produto_inteiro) body += icombo(k('addparte'), 'Adicionar peça retrabalhada (busque por nome ou código)', Object.entries(ft.partes[r.produto] || {}).filter(([chave, x]) => !chave.startsWith('_') && x && !p.pecas?.some(y => y.chave === chave)).map(([chave, x]) => [chave, `${x.codigo} — ${x.nome}`]).sort((x, y) => ordemAlfa(x[1], y[1])), '', { ...o, ph: 'Digite para buscar a peça…' }) +
             (p.pecas || []).map((x, j) => row('c3', `<div>${esc(x.codigo)} — ${esc(x.nome)}</div>`, inum(k(`qtd_${j}`), 'Quantidade retrabalhada', x.qtd, o), dis ? '' : `<button class="btn sm danger" data-rtparte="${i}.${j}">Remover peça</button>`)).join('');
         }
       }
@@ -204,7 +205,7 @@ export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
       const maq = maquinasSetor(cfg, p.setor);
       body += row('c2', inum(k('horas_homem'), 'Horas-homem totais', p.horas_homem, { ...o, help: 'Some o tempo de todas as pessoas: 2 pessoas × 3 h = 6 horas-homem.' }), inum(k('custo_hora'), 'Valor hora-homem do setor (R$/h)', p.custo_hora, { dis: true })) +
         (p.maquinas || []).map((m, j) => row('c3', `<div>${esc(m.codigo)}<div class="caption">${brl(m.valor_hora)}/h · ${brl(positivo(m.horas) * num(m.valor_hora))}</div></div>`, inum(k(`mh_${j}`), 'Horas-máquina', m.horas, o), dis ? '' : `<button class="btn sm danger" data-rtmaq="${i}.${j}">Remover máquina</button>`)).join('') +
-        isel(k('addmaq'), 'Adicionar máquina do processo', maq.filter(m => !p.maquinas?.some(x => x.codigo === m.codigo)).map(m => [m.codigo, m.codigo]), '', { ...o, ph: 'Selecione a máquina…' }) +
+        icombo(k('addmaq'), 'Adicionar máquina do processo (busque pelo código)', maq.filter(m => !p.maquinas?.some(x => x.codigo === m.codigo)).map(m => [m.codigo, m.codigo]).sort((x, y) => ordemAlfa(x[1], y[1])), '', { ...o, ph: 'Digite para buscar a máquina…' }) +
         (!maq.length ? '<div class="caption">Nenhuma máquina cadastrada para este processo.</div>' : '') +
         `<div class="caption">Custo da etapa: ${brl(positivo(p.horas_homem) * num(p.custo_hora) + (p.maquinas || []).reduce((s, m) => s + positivo(m.horas) * num(m.valor_hora), 0))}</div>`;
     }
@@ -241,8 +242,8 @@ export function ligarRetrabalho(el, r, cfg, ft, render, dis) {
     $('#rt-pendente', el).textContent = 'Seleção alterada. Clique em Aplicar processos.';
   });
   $('#rt-aplicar', el)?.addEventListener('click', () => { aplicarProcessos(r, cfg, estado.ids); render(); });
-  $$('[data-k^="_rt."]', el).forEach(input => input.addEventListener('change', () => {
-    const [, i, field] = input.dataset.k.split('.'), p = ps[+i], v = input.type === 'checkbox' ? input.checked : input.type === 'number' ? num(input.value) : input.value;
+  $$('[data-k^="_rt."], [data-combo^="_rt."]', el).forEach(input => input.addEventListener('change', () => {
+    const [, i, field] = (input.dataset.k || input.dataset.combo).split('.'), p = ps[+i], v = input.dataset.combo ? comboValor(input) : input.type === 'checkbox' ? input.checked : input.type === 'number' ? num(input.value) : input.value;
     if (field === 'addmaq' && v) p.maquinas.push({ codigo: v, horas: 0 });
     else if (field === 'addparte' && v) { const x = ft.partes[r.produto]?.[v]; if (x) (p.pecas ||= []).push({ chave: v, codigo: x.codigo, nome: x.nome, qtd: 1 }); }
     else if (field.startsWith('mh_')) p.maquinas[+field.slice(3)].horas = v;
