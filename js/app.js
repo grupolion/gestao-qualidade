@@ -1,9 +1,9 @@
 // Gestão da Qualidade — Lion Fitness (versão web / GitHub Pages). Porta do app.py (Streamlit).
-import * as db from "./db.js?v=20261001-touch5";
+import * as db from "./db.js?v=20261005-minutos1";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
-  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261001-touch5";
-import { paginaAdmin } from "./admin.js?v=20261001-touch5";
-import { processoLinha, custosRetrabalho, calcularProcessos, converterRetrabalho, telaRetrabalho, ligarRetrabalho, erroRetrabalho, selecaoPendente } from './retrabalho.js?v=20261001-touch5';
+  inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261005-minutos1";
+import { paginaAdmin } from "./admin.js?v=20261005-minutos1";
+import { processoLinha, custosRetrabalho, calcularProcessos, converterRetrabalho, telaRetrabalho, ligarRetrabalho, erroRetrabalho, selecaoPendente } from './retrabalho.js?v=20261005-minutos1';
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -44,7 +44,7 @@ export const nome = (login) => S.perfis.find((p) => p.login === login)?.nome || 
 const pessoas = () => S.perfis.filter((p) => p.ativo).map((p) => [p.login, `${p.nome} (${p.login})`]);
 const statusDe = (r) => LEGADO[r.status] || r.status || APONTADO;
 // setores com linha de tempo fixo (custo por m²); taxas podem ser sobrescritas em parametros
-export { processoLinha } from './retrabalho.js?v=20261001-touch5';
+export { processoLinha } from './retrabalho.js?v=20261005-minutos1';
 // área (m²) com a tabela atual de materiais — k: "b" banho (área total) | "p" pintura (tubo externa, chapa total)
 // chave vazia = máquina inteira; "C<cod>" = 1 componente; "M<cod>" = 1 unidade do material
 // chapa: consumo cheio (sem ÷1,06); tubo: consumo ÷1,06 (já gravado assim na ficha)
@@ -205,6 +205,7 @@ async function iniciar() {
 }
 
 // ---------------- Visão geral ----------------
+const emitentes = () => [...new Set(S.rnc.map((r) => r.emitente).filter(Boolean))].map((l) => [l, nome(l)]).sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
 function filtroPeriodo(el, chave) {
   const f = (S.filtros[chave] ||= { modo: "intervalo", de: addDias(hoje(), -365), ate: hoje(), setor: "" });
   f.modo ||= "intervalo";
@@ -216,7 +217,7 @@ function filtroPeriodo(el, chave) {
   else if (f.modo === "mes") campos = `<div class="field"><label>Mês/ano</label><input type="month" data-k="mes" value="${f.de.slice(0, 7)}"></div>`;
   else if (f.modo === "dia") campos = idate("dia", "Dia", f.de);
   else campos = idate("de", "Data inicial", f.de) + idate("ate", "Data final", f.ate);
-  return { f, html: `<div class="row c4 keep2">${selModo}${campos}${isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" })}</div>` };
+  return { f, html: `<div class="row c5 keep2">${selModo}${campos}${isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" })}${isel("emitente", "Lançado por", emitentes(), f.emitente || "", { ph: "Todos os usuários" })}</div>` };
 }
 // converte a escolha (ano / mês / dia) em de–ate
 function ajustarPeriodo(f, k, v) {
@@ -246,7 +247,7 @@ function paginaGeral(el) {
   if (f.de > f.ate) return ($("#g-body").innerHTML = alerta("warn", "A data inicial deve ser anterior ou igual à data final."));
   (aba ? painelMetas : painel)($("#g-body"), f);
 }
-const noPeriodo = (f) => S.rnc.filter((r) => (!f.setor || r.setor_origem === f.setor) && String(r.data || "").slice(0, 10) >= f.de && String(r.data || "").slice(0, 10) <= f.ate);
+const noPeriodo = (f) => S.rnc.filter((r) => (!f.setor || r.setor_origem === f.setor) && (!f.emitente || r.emitente === f.emitente) && String(r.data || "").slice(0, 10) >= f.de && String(r.data || "").slice(0, 10) <= f.ate);
 const charts = [];
 function grafico(canvas, cfg) { charts.push(new Chart(canvas, { ...cfg, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: !!cfg.legend } }, ...cfg.options } })); }
 function painel(el, f) {
@@ -375,13 +376,13 @@ function paginaRnc(el) {
     (S.draft?.tipo === "rnc" ? alerta("warn", `Você tem um formulário em andamento${S.draft.rec.id ? ` (${S.draft.rec.id})` : ""}. <button class="btn sm" id="r-ret">Continuar preenchimento</button> <button class="btn sm" id="r-desc">Descartar</button>`) : "") +
     `<div class="btnrow"><button class="btn primary" id="r-nova" ${setUser().length ? "" : "disabled"}>+ Registrar não conformidade</button></div>` +
     (setUser().length ? "" : alerta("info", "Solicite ao administrador acesso a um setor para registrar ocorrências.")) +
-    card(row("c3", isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" }), isel("status", "Etapa", RNC_STATUS, f.status, { ph: "Todas as etapas" }),
+    card(row("c4", isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" }), isel("status", "Etapa", RNC_STATUS, f.status, { ph: "Todas as etapas" }), isel("emitente", "Lançado por", emitentes(), f.emitente || "", { ph: "Todos os usuários" }),
       inp("q", "Buscar ocorrência", f.q, { ph: "Número, descrição, peça ou OP" }))) + `<div id="r-tab"></div>`;
   $("#r-nova").onclick = () => novaRnc();
   if ($("#r-ret")) { $("#r-ret").onclick = retomar; $("#r-desc").onclick = () => { S.draft = null; paginaRnc(el); }; }
   ligarFiltros($(".card", el), f, () => paginaRnc(el));
   const q = f.q.trim().toLowerCase();
-  const L = S.rnc.filter((r) => (!f.setor || r.setor_origem === f.setor) && (!f.status || r.status === f.status) &&
+  const L = S.rnc.filter((r) => (!f.setor || r.setor_origem === f.setor) && (!f.status || r.status === f.status) && (!f.emitente || r.emitente === f.emitente) &&
     (!q || [r.id, r.descricao, r.cod_peca, r.desc_peca, r.op, r.tipo_nc].some((x) => String(x || "").toLowerCase().includes(q))));
   const rows = L.map((r) => { const A = S.acoes.filter((a) => a.rnc_id === r.id);
     return { id: r.id, data: fdate(r.data), setor: r.setor_origem, tipo: r.tipo_nc, qtd: r.qtd_nc, status: r.status, resp: nome(r.responsavel),
@@ -470,8 +471,7 @@ async function editorRnc(el) {
   const defeitos = (S.cfg.setores || {})[r.setor_origem] || [];
   const tit = novo ? "Nova não conformidade" : `${trat ? "Tratativa" : "Apontamento"} ${r.id}`;
   let h = `<div class="btnrow"><button class="btn" id="e-volta">← Voltar</button></div>` + heading(tit, novo ? "Preencha os campos com *. Salve as alterações antes de sair." : `Etapa: ${r.status}`) +
-    (dis ? alerta("info", "Registro encerrado — somente o administrador pode alterar.") : "") +
-    `<div class="tabs">${secs.map((s, i) => `<button data-a="${i}" class="${i === E.aba ? "on" : ""}">${i + 1} · ${s.slice(4)}</button>`).join("")}</div>`;
+    (dis ? alerta("info", "Registro encerrado — somente o administrador pode alterar.") : "");
   const sec = secs[E.aba]; E._sec = sec[0];
   const o = { dis };
   if (sec.startsWith("1")) {
@@ -572,7 +572,9 @@ async function editorRnc(el) {
   }
   // botões
   const podeAbrir = !novo && r.status === APONTADO;
-  h += `<hr><div class="btnrow">${dis ? "" : `<button class="btn primary" id="e-salvar">💾 Salvar</button>`}
+  h += `<hr><div class="tabs tabs-fim">${secs.map((s, i) => `<button data-a="${i}" class="${i === E.aba ? "on" : ""}">${i + 1} · ${s.slice(4)}</button>`).join("")}</div>
+    <div class="btnrow">${E.aba > 0 ? `<button class="btn" data-a="${E.aba - 1}">← Anterior</button>` : ""}${E.aba < secs.length - 1 ? `<button class="btn" data-a="${E.aba + 1}">Próxima →</button>` : ""}</div>
+    <div class="btnrow">${dis ? "" : `<button class="btn primary" id="e-salvar">💾 Salvar</button>`}
     ${r.status === APONTADO && !dis ? `<button class="btn" id="e-trat" title="Transforma o apontamento em tratativa (Planejar)">🚩 Abrir tratativa (PDCA)</button>` : ""}
     ${admin() && trat && !fin ? `<button class="btn" id="e-fin">✅ Finalizar</button><button class="btn" id="e-canc">Cancelar RNC</button>` : ""}
     ${admin() && fin ? `<button class="btn" id="e-reab">↩ Reabrir</button>` : ""}
@@ -612,7 +614,7 @@ async function editorRnc(el) {
   $$("[data-mrm]", el).forEach((b) => (b.onclick = () => { r.maquinas.splice(+b.dataset.mrm, 1); editorRnc(el); }));
   $$("[data-pq]", el).forEach((i) => i.addEventListener("change", () => { r.pecas_subst[+i.dataset.pq].qtd = num(i.value); editorRnc(el); }));
   $$("[data-prm]", el).forEach((b) => (b.onclick = () => { r.pecas_subst.splice(+b.dataset.prm, 1); editorRnc(el); }));
-  $$("[data-a]", el).forEach((b) => (b.onclick = () => { E.aba = +b.dataset.a; editorRnc(el); }));
+  $$("[data-a]", el).forEach((b) => (b.onclick = () => { E.aba = +b.dataset.a; editorRnc(el); window.scrollTo(0, 0); }));
   $$("[data-img]", el).forEach((i) => (i.onclick = () => verImagem(i.src)));
   $$("tr[data-i]", el).forEach((t) => (t.onclick = () => { const A = S.acoes.filter((a) => a.rnc_id === r.id); abrirAcao(A[+t.dataset.i].id, { tipo: "rnc", rec: r, volta: E.volta, fotos: E.fotos, aba: E.aba }); }));
   $("#e-volta").onclick = fechar;
@@ -742,9 +744,9 @@ function paginaKanban(el) {
   const f = (S.filtros.kanban ||= { setor: "", fin: false });
   const etapas = f.fin ? [...PDCA, "Finalizada"] : PDCA;
   el.innerHTML = heading("Tratativas PDCA", "Acompanhe cada problema do planejamento à verificação. Abra um cartão para avançar a etapa.") +
-    card(row("w31", isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" }), `<div class="field"><label>&nbsp;</label>${ichk("fin", "Incluir finalizadas", f.fin)}</div>`)) +
+    card(row("w31", isel("setor", "Setor", setUser(), f.setor, { ph: "Todos os meus setores" }), isel("emitente", "Lançado por", emitentes(), f.emitente || "", { ph: "Todos os usuários" }), `<div class="field"><label>&nbsp;</label>${ichk("fin", "Incluir finalizadas", f.fin)}</div>`)) +
     `<div class="kanban" style="--c:${etapas.length}">${etapas.map((et) => {
-      const cards = S.rnc.filter((r) => r.status === et && (!f.setor || r.setor_origem === f.setor)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      const cards = S.rnc.filter((r) => r.status === et && (!f.setor || r.setor_origem === f.setor) && (!f.emitente || r.emitente === f.emitente)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
       return `<div class="kcol" data-et="${esc(et)}"><h4>${esc(et)}</h4><span class="caption">${cards.length} cartão(ões)</span>` + (cards.length ? cards.map((r) => {
         const A = S.acoes.filter((a) => a.rnc_id === r.id), atr = A.filter(atrasada).length;
         return `<div class="kcard" data-drag="${esc(r.id)}"><b>${esc(r.id)}</b> · ${esc(r.setor_origem || "")}<br>${esc(r.tipo_nc || (r.descricao || "").slice(0, 60))}

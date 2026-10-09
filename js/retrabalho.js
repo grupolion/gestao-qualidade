@@ -1,5 +1,6 @@
-import { num, esc, brl, card, row, inum, isel, icombo, ichk, alerta, $, $$, comboValor } from './ui.js?v=20261001-touch5';
+import { num, esc, brl, card, row, inum, isel, icombo, ichk, alerta, $, $$, comboValor } from './ui.js?v=20261005-minutos1';
 
+export const ehTerceiro = setor => normalizar(setor).includes('terceiriz');
 export function processoLinha(setor) {
   const s = String(setor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (s.includes('pintura')) return { k: 'p', nome: 'pintura', param: 'valor_m2_pintura', padrao: 79 };
@@ -22,6 +23,7 @@ export const FLUXO_RETRABALHO = [
   [['pintura', 'Pintura']],
   [['tapecaria', 'Tapeçaria'], ['montagem-final', 'Montagem Final']],
   [['montagem-carenagem', 'Montagem da Carenagem']],
+  [['terceirizacao', 'Terceirização']],
   [['inspecao-final', 'Inspeção Final']]
 ];
 const selecoes = new WeakMap(); // seleção provisória pertence ao registro em edição, não ao banco
@@ -133,6 +135,7 @@ export function converterRetrabalho(r, setores) {
 export function calcularProcessos(r, cfg, areaFicha) {
   for (const p of r.processos_retrabalho) {
     const proc = processoLinha(p.setor);
+    if (ehTerceiro(p.setor)) { p.custo_processo = centavos(positivo(p.custo_terceiro)); p.horas_homem = 0; p.maquinas = []; continue; }
     if (proc) {
       const base = p.mesmo_banho && proc.k === 'p' ? r.processos_retrabalho.find(x => processoLinha(x.setor)?.k === 'b') || p : p;
       const areaMaq = areaFicha(r.produto, '', proc.k), peso = positivo(cfg.pesos_maquinas?.[r.produto]);
@@ -155,7 +158,7 @@ export function custosRetrabalho(r) {
   if (!Array.isArray(r.processos_retrabalho)) return { homem: num(r.horas_homem) * num(r.custo_hora), maquina: num(r.horas_maquina) * num(r.custo_hora_maquina),
     material: num(r.custo_material), processo: num(r.custo_processo), horas: num(r.horas_homem), horas_maquina: num(r.horas_maquina) };
   return r.processos_retrabalho.reduce((c, p) => {
-    if (processoLinha(p.setor)) c.processo += num(p.custo_processo);
+    if (processoLinha(p.setor) || ehTerceiro(p.setor)) c.processo += num(p.custo_processo);
     else {
       c.horas += positivo(p.horas_homem); c.homem += positivo(p.horas_homem) * num(p.custo_hora);
       c.horas_maquina += (p.maquinas || []).reduce((s, m) => s + positivo(m.horas), 0);
@@ -166,6 +169,7 @@ export function custosRetrabalho(r) {
 }
 export function erroRetrabalho(r, cfg) {
   for (const p of r.processos_retrabalho || []) {
+    if (ehTerceiro(p.setor)) { if (!(num(p.custo_terceiro) > 0)) return `Informe o custo da terceirização (${p.setor}).`; continue; }
     if (num(p.horas_homem) < 0 || (p.maquinas || []).some(m => num(m.horas) < 0) || num(p.peso_retrab) < 0 || (p.pecas || []).some(x => num(x.qtd) < 0)) return 'Informe quantidades e horas iguais ou maiores que zero.';
     if (processoLinha(p.setor) && (!r.produto || !num(p.area_proc))) return `Informe o produto e a área retrabalhada de ${p.setor} (máquina inteira, peças ou peso).`;
     if (!processoLinha(p.setor) && positivo(p.horas_homem) && !num(p.custo_hora)) return `Cadastre o valor hora-homem de ${p.setor} na Administração.`;
@@ -180,21 +184,23 @@ export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
   const ps = r.processos_retrabalho;
   const o = { dis }, temBanho = ps.some(p => processoLinha(p.setor)?.k === 'b');
   const totais = custosRetrabalho(r);
-  let h = card(alerta('info', 'Selecione os processos realizados no retrabalho. Banho químico inclui pintura. As horas são informadas por processo manual; banho e pintura têm custo fixo por m².') +
+  let h = card(alerta('info', 'Selecione os processos realizados no retrabalho. Banho químico inclui pintura. O tempo é informado em minutos por processo manual; banho e pintura têm custo fixo por m².') +
     icombo('_rtproduto', 'Produto / Máquina (ficha técnica)', Object.values(ft.produtos).map(p => [p.codigo, `${p.codigo} — ${p.nome}`]), r.produto, { ...o, dis: dis || estadoFicha.carregando || !!estadoFicha.erro || !Object.keys(ft.produtos).length, ph: estadoFicha.carregando && !estadoFicha.erro ? 'Carregando máquinas…' : 'Pesquise por nome ou código…' }) +
     diagramaProcessos(r, cfg, dis), 'Fluxo de retrabalho');
   h += ps.map((p, i) => {
     const proc = processoLinha(p.setor), k = field => `_rt.${i}.${field}`;
     const botoes = dis ? '' : `<div class="btnrow">${proc?.k === 'p' && temBanho ? '<span class="caption">Obrigatória após o banho</span>' : `<button class="btn sm danger" data-rtrm="${i}">Remover processo</button>`}</div>`;
     let body = '';
-    if (proc) {
+    if (ehTerceiro(p.setor)) {
+      body += inum(k('custo_terceiro'), 'Custo da terceirização (R$) *', p.custo_terceiro, { ...o, help: 'Valor fixo cobrado pelo serviço terceirizado; soma ao custo do retrabalho.' });
+    } else if (proc) {
       if (proc.k === 'p' && temBanho) body += ichk(k('mesmo_banho'), 'Usar as mesmas peças/peso do banho químico', p.mesmo_banho, o);
       if (!(p.mesmo_banho && proc.k === 'p' && temBanho)) {
         body += isel(k('metodo_proc'), 'Como calcular a área retrabalhada', [['pecas', 'Máquina inteira ou peças identificadas'], ['peso', 'Proporcional ao peso']], p.metodo_proc || 'pecas', o);
         if (p.metodo_proc === 'peso') body += inum(k('peso_retrab'), 'Peso total retrabalhado (kg)', p.peso_retrab, o) + (!num(cfg.pesos_maquinas?.[r.produto]) ? alerta('warn', 'Sem peso cadastrado para este produto.') : '');
         else {
           body += ichk(k('produto_inteiro'), 'Máquina inteira × Qtd NC', p.produto_inteiro, o);
-          if (!p.produto_inteiro) body += icombo(k('addparte'), 'Adicionar peça retrabalhada (busque por nome ou código)', Object.entries(ft.partes[r.produto] || {}).filter(([chave, x]) => !chave.startsWith('_') && x && !p.pecas?.some(y => y.chave === chave)).map(([chave, x]) => [chave, `${x.codigo} — ${x.nome}`]).sort((x, y) => ordemAlfa(x[1], y[1])), '', { ...o, ph: 'Digite para buscar a peça…' }) +
+          if (!p.produto_inteiro) body += icombo(k('addparte'), 'Adicionar peça retrabalhada (busque por nome ou código)', Object.entries(ft.partes[r.produto] || {}).filter(([chave, x]) => !chave.startsWith('_') && x && !p.pecas?.some(y => y.chave === chave)).map(([chave, x]) => [chave, `${x.codigo} — ${x.nome}${tamTubo(ft, cfg, r.produto, chave)}`]).sort((x, y) => ordemAlfa(x[1], y[1])), '', { ...o, ph: 'Digite para buscar a peça…' }) +
             (p.pecas || []).map((x, j) => row('c3', `<div>${esc(x.codigo)} — ${esc(x.nome)}</div>`, inum(k(`qtd_${j}`), 'Quantidade retrabalhada', x.qtd, o), dis ? '' : `<button class="btn sm danger" data-rtparte="${i}.${j}">Remover peça</button>`)).join('');
         }
       }
@@ -203,8 +209,8 @@ export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
         (!num(p.area_proc) ? alerta('warn', 'Área ainda não calculada. Selecione o produto e informe máquina inteira, peças ou peso; confira o cadastro de áreas.') : '');
     } else {
       const maq = maquinasSetor(cfg, p.setor);
-      body += row('c2', inum(k('horas_homem'), 'Horas-homem totais', p.horas_homem, { ...o, help: 'Some o tempo de todas as pessoas: 2 pessoas × 3 h = 6 horas-homem.' }), inum(k('custo_hora'), 'Valor hora-homem do setor (R$/h)', p.custo_hora, { dis: true })) +
-        (p.maquinas || []).map((m, j) => row('c3', `<div>${esc(m.codigo)}<div class="caption">${brl(m.valor_hora)}/h · ${brl(positivo(m.horas) * num(m.valor_hora))}</div></div>`, inum(k(`mh_${j}`), 'Horas-máquina', m.horas, o), dis ? '' : `<button class="btn sm danger" data-rtmaq="${i}.${j}">Remover máquina</button>`)).join('') +
+      body += row('c2', inum(k('min_homem'), 'Minutos-homem totais', Math.round(num(p.horas_homem) * 6000) / 100, { ...o, help: 'Some o tempo de todas as pessoas: 2 pessoas × 30 min = 60 minutos-homem.' }), inum(k('custo_hora'), 'Valor hora-homem do setor (R$/h)', p.custo_hora, { dis: true })) +
+        (p.maquinas || []).map((m, j) => row('c3', `<div>${esc(m.codigo)}<div class="caption">${brl(m.valor_hora)}/h · ${brl(positivo(m.horas) * num(m.valor_hora))}</div></div>`, inum(k(`mh_${j}`), 'Minutos-máquina', Math.round(num(m.horas) * 6000) / 100, o), dis ? '' : `<button class="btn sm danger" data-rtmaq="${i}.${j}">Remover máquina</button>`)).join('') +
         icombo(k('addmaq'), 'Adicionar máquina do processo (busque pelo código)', maq.filter(m => !p.maquinas?.some(x => x.codigo === m.codigo)).map(m => [m.codigo, m.codigo]).sort((x, y) => ordemAlfa(x[1], y[1])), '', { ...o, ph: 'Digite para buscar a máquina…' }) +
         (!maq.length ? '<div class="caption">Nenhuma máquina cadastrada para este processo.</div>' : '') +
         `<div class="caption">Custo da etapa: ${brl(positivo(p.horas_homem) * num(p.custo_hora) + (p.maquinas || []).reduce((s, m) => s + positivo(m.horas) * num(m.valor_hora), 0))}</div>`;
@@ -217,6 +223,13 @@ export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
   return h;
 }
 
+// comprimento do tubo (m) da peça/material, a partir das linhas da ficha
+function tamTubo(ft, cfg, prod, chave) {
+  const A = cfg.area_materiais || {}, L = ft.produtos?.[prod]?.linhas || [], cod = chave.slice(1);
+  const ms = [...new Set(L.filter(l => (chave[0] === 'M' ? l[1] === cod : l[0] === cod) && A[l[1]]?.tipo === 'tubo' && +l[2] > 0)
+    .map(l => (+l[2]).toLocaleString('pt-BR', { maximumFractionDigits: 4 }) + ' m'))];
+  return ms.length ? ` (${ms.join(' / ')})` : '';
+}
 export function ligarRetrabalho(el, r, cfg, ft, render, dis) {
   if (dis) return;
   const ps = r.processos_retrabalho;
@@ -241,13 +254,22 @@ export function ligarRetrabalho(el, r, cfg, ft, render, dis) {
     $('.rt-count', el).textContent = `${ids.size} selecionado(s)`;
     $('#rt-pendente', el).textContent = 'Seleção alterada. Clique em Aplicar processos.';
   });
-  $('#rt-aplicar', el)?.addEventListener('click', () => { aplicarProcessos(r, cfg, estado.ids); render(); });
+  $('#rt-aplicar', el)?.addEventListener('click', () => {
+    aplicarProcessos(r, cfg, estado.ids); render();
+    setTimeout(() => {
+      const alvo = document.querySelector('[data-k^="_rt.0."], [data-combo^="_rt.0."]');
+      if (!alvo) return;
+      (alvo.closest('.card') || alvo).scrollIntoView({ behavior: 'smooth', block: 'start' });
+      alvo.focus({ preventScroll: true });
+    }, 50);
+  });
   $$('[data-k^="_rt."], [data-combo^="_rt."]', el).forEach(input => input.addEventListener('change', () => {
     const [, i, field] = (input.dataset.k || input.dataset.combo).split('.'), p = ps[+i], v = input.dataset.combo ? comboValor(input) : input.type === 'checkbox' ? input.checked : input.type === 'number' ? num(input.value) : input.value;
     if (field === 'addmaq' && v) p.maquinas.push({ codigo: v, horas: 0 });
     else if (field === 'addparte' && v) { const x = ft.partes[r.produto]?.[v]; if (x) (p.pecas ||= []).push({ chave: v, codigo: x.codigo, nome: x.nome, qtd: 1 }); }
-    else if (field.startsWith('mh_')) p.maquinas[+field.slice(3)].horas = v;
+    else if (field.startsWith('mh_')) p.maquinas[+field.slice(3)].horas = v / 60;
     else if (field.startsWith('qtd_')) p.pecas[+field.slice(4)].qtd = v;
+    else if (field === 'min_homem') p.horas_homem = v / 60;
     else if (!['addmaq', 'addparte'].includes(field)) p[field] = v;
     render();
   }));
