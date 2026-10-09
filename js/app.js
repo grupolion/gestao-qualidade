@@ -483,7 +483,7 @@ async function editorRnc(el) {
       row("c2", inp("op", "Ordem de produção (OP)", r.op, o), isel("tipo_nc", "Tipo de não conformidade", defeitos, r.tipo_nc, { ...o, ph: defeitos.length ? "Selecione…" : "Selecione o setor" })) +
       row("c4 keep2", inum("qtd_nc", "Qtd NC", r.qtd_nc, o), inum("qtd_lote", "Qtd do lote", r.qtd_lote, o), isel("gravidade", "Gravidade", GRAVIDADE, r.gravidade, { ...o, ph: "" }),
         isel("reincidente", "Reincidente?", ["Não", "Sim"], r.reincidente, o)), "Identificação") +
-      card(itxt("descricao", "Descrição do problema (o que, onde, quando, quanto) *", r.descricao, o), "Descrição");
+      card(itxt("descricao", "Descrição do problema (opcional: o que, onde, quando, quanto)", r.descricao, o), "Descrição");
   } else if (sec.startsWith("2")) {
     if (semFicha) h += fichaErro ? alerta('error', `Não foi possível carregar as máquinas: ${esc(fichaErro)} <button class="btn sm" id="e-ficha-retry">Tentar novamente</button>`) : alerta('info', 'Carregando máquinas da ficha técnica… aguarde para pesquisar.');
     else if (!Object.keys(FT.produtos).length) h += alerta('warn', 'A ficha técnica não contém máquinas. Confira a importação em Administração → Ficha técnica. <button class="btn sm" id="e-ficha-retry">Recarregar lista</button>');
@@ -633,7 +633,7 @@ async function editorRnc(el) {
     }
     const d = JSON.parse(JSON.stringify(r));
     if (novoStatus) d.status = novoStatus;
-    if (!d.setor_origem || !String(d.descricao || "").trim()) return msg("error", "Informe o setor de origem e a descrição.");
+    if (!d.setor_origem) return msg("error", "Informe o setor de origem.");
     if (!admin() && !setUser().includes(d.setor_origem)) return msg("error", "Você não tem autorização para apontar neste setor.");
     if (d.status === "Finalizada" && d.eficaz !== "Sim") return msg("error", "Para finalizar, a eficácia deve estar verificada como 'Sim'.");
     if (d.status === "Finalizada" && S.acoes.some((a) => a.rnc_id === d.id && !["Concluída", "Cancelada"].includes(a.status))) return msg("error", "Existem tarefas abertas nesta tratativa.");
