@@ -177,15 +177,31 @@ function erroProcesso(p, r) {
   if ((p.maquinas || []).some(m => positivo(m.horas) && !num(m.valor_hora))) return `Cadastre o valor hora das máquinas de ${p.setor} na Administração.`;
   return '';
 }
+// setores marcados: o tempo de mão de obra vai igual para a máquina (salvo edição manual)
+export const maqIgualMO = (cfg, setor) => !!cfg?.setor_params?.[setor]?.maq_igual_mo && !processoLinha(setor) && !ehTerceiro(setor);
+export function sincronizarMaquinas(r, cfg) {
+  for (const p of r.processos_retrabalho || []) {
+    if (!maqIgualMO(cfg, p.setor)) continue;
+    const disp = maquinasSetor(cfg, p.setor);
+    p.maquinas ||= [];
+    if (!p.maquinas.length && disp.length === 1 && positivo(p.horas_homem)) p.maquinas.push({ codigo: disp[0].codigo, horas: 0, valor_hora: num(disp[0].custo_hora) });
+    if (!p.maq_manual) for (const m of p.maquinas) m.horas = positivo(p.horas_homem);
+  }
+}
+function erroMaquina(p, cfg) {
+  if (maqIgualMO(cfg, p.setor) && positivo(p.horas_homem) && !(p.maquinas || []).length && maquinasSetor(cfg, p.setor).length) return `Selecione a máquina usada em ${p.etapa_nome || p.setor}: o tempo da mão de obra também é apropriado à máquina.`;
+  return '';
+}
 // no passo a passo, cada processo precisa gerar custo antes de avançar
-function erroPasso(p, r) {
-  const e = erroProcesso(p, r);
+function erroPasso(p, r, cfg) {
+  const e = erroProcesso(p, r) || erroMaquina(p, cfg);
   if (e) return e;
   if (!processoLinha(p.setor) && !ehTerceiro(p.setor) && !positivo(p.horas_homem) && !(p.maquinas || []).some(m => positivo(m.horas))) return `Informe o tempo (em minutos) de ${p.etapa_nome || p.setor} para formar o custo.`;
   return '';
 }
 export function erroRetrabalho(r, cfg) {
-  for (const p of r.processos_retrabalho || []) { const e = erroProcesso(p, r); if (e) return e; }
+  sincronizarMaquinas(r, cfg);
+  for (const p of r.processos_retrabalho || []) { const e = erroProcesso(p, r) || erroMaquina(p, cfg); if (e) return e; }
   if (num(r.custo_material) < 0) return 'Informe material e refugo iguais ou maiores que zero.';
   return '';
 }
@@ -193,6 +209,7 @@ export function erroRetrabalho(r, cfg) {
 const ordemAlfa = (a, b) => String(a).localeCompare(String(b), 'pt-BR', { numeric: true, sensitivity: 'base' });
 export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
   const ps = r.processos_retrabalho;
+  if (!dis) sincronizarMaquinas(r, cfg);
   const o = { dis }, temBanho = ps.some(p => processoLinha(p.setor)?.k === 'b');
   const totais = custosRetrabalho(r);
   let h = card(alerta('info', 'Selecione os processos realizados no retrabalho. Banho químico inclui pintura. O tempo é informado em minutos por processo manual; banho e pintura têm custo fixo por m².') +
@@ -222,9 +239,10 @@ export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
         `<div class="metric"><div class="l">Taxa fixa</div><div class="v">${brl(p.valor_m2)}/m²</div></div>`, `<div class="metric"><div class="l">Custo da etapa</div><div class="v">${brl(p.custo_processo)}</div></div>`) +
         (!num(p.area_proc) ? alerta('warn', 'Área ainda não calculada. Selecione o produto e informe máquina inteira, peças ou peso; confira o cadastro de áreas.') : '');
     } else {
-      const maq = maquinasSetor(cfg, p.setor);
+      const maq = maquinasSetor(cfg, p.setor), igual = maqIgualMO(cfg, p.setor);
       body += row('c2', inum(k('min_homem'), 'Minutos-homem totais', Math.round(num(p.horas_homem) * 6000) / 100, { ...o, help: 'Some o tempo de todas as pessoas: 2 pessoas × 30 min = 60 minutos-homem.' }), inum(k('custo_hora'), 'Valor hora-homem do setor (R$/h)', p.custo_hora, { dis: true })) +
-        (p.maquinas || []).map((m, j) => row('c3', `<div>${esc(m.codigo)}<div class="caption">${brl(m.valor_hora)}/h · ${brl(positivo(m.horas) * num(m.valor_hora))}</div></div>`, inum(k(`mh_${j}`), 'Minutos-máquina', Math.round(num(m.horas) * 6000) / 100, o), dis ? '' : `<button class="btn sm danger" data-rtmaq="${i}.${j}">Remover máquina</button>`)).join('') +
+        (p.maquinas || []).map((m, j) => row('c3', `<div>${esc(m.codigo)}<div class="caption">${brl(m.valor_hora)}/h · ${brl(positivo(m.horas) * num(m.valor_hora))}</div></div>`, inum(k(`mh_${j}`), 'Minutos-máquina', Math.round(num(m.horas) * 6000) / 100, igual && !p.maq_manual ? { ...o, dis: true } : o), dis ? '' : `<button class="btn sm danger" data-rtmaq="${i}.${j}">Remover máquina</button>`)).join('') +
+        (igual ? ichk(k('maq_manual'), 'Informar manualmente os minutos da máquina', p.maq_manual, o) + '<div class="caption">Neste setor o tempo da mão de obra é apropriado automaticamente à máquina. Selecione a máquina usada.</div>' : '') +
         icombo(k('addmaq'), 'Adicionar máquina do processo (busque pelo código)', maq.filter(m => !p.maquinas?.some(x => x.codigo === m.codigo)).map(m => [m.codigo, m.codigo]).sort((x, y) => ordemAlfa(x[1], y[1])), '', { ...o, ph: 'Digite para buscar a máquina…' }) +
         (!maq.length ? '<div class="caption">Nenhuma máquina cadastrada para este processo.</div>' : '') +
         `<div class="caption">Custo da etapa: ${brl(positivo(p.horas_homem) * num(p.custo_hora) + (p.maquinas || []).reduce((s, m) => s + positivo(m.horas) * num(m.valor_hora), 0))}</div>`;
@@ -279,7 +297,7 @@ export function ligarRetrabalho(el, r, cfg, ft, render, dis) {
   };
   $('#rt-ant', el)?.addEventListener('click', () => ir(passoAtual(r, ps.length) - 1));
   $('#rt-prox', el)?.addEventListener('click', () => {
-    const a = passoAtual(r, ps.length), e = erroPasso(ps[a], r);
+    const a = passoAtual(r, ps.length), e = erroPasso(ps[a], r, cfg);
     const box = $('#rt-erro', el);
     if (e) { box.innerHTML = alerta('warn', esc(e)); return; }
     if (a < ps.length - 1) return ir(a + 1);
@@ -298,11 +316,12 @@ export function ligarRetrabalho(el, r, cfg, ft, render, dis) {
   });
   $$('[data-k^="_rt."], [data-combo^="_rt."]', el).forEach(input => input.addEventListener('change', () => {
     const [, i, field] = (input.dataset.k || input.dataset.combo).split('.'), p = ps[+i], v = input.dataset.combo ? comboValor(input) : input.type === 'checkbox' ? input.checked : input.type === 'number' ? num(input.value) : input.value;
-    if (field === 'addmaq' && v) p.maquinas.push({ codigo: v, horas: 0 });
+    if (field === 'addmaq' && v) { p.maquinas.push({ codigo: v, horas: 0 }); sincronizarMaquinas(r, cfg); }
     else if (field === 'addparte' && v) { const x = ft.partes[r.produto]?.[v]; if (x) (p.pecas ||= []).push({ chave: v, codigo: x.codigo, nome: x.nome, qtd: 1 }); }
     else if (field.startsWith('mh_')) p.maquinas[+field.slice(3)].horas = v / 60;
     else if (field.startsWith('qtd_')) p.pecas[+field.slice(4)].qtd = v;
-    else if (field === 'min_homem') p.horas_homem = v / 60;
+    else if (field === 'min_homem') { p.horas_homem = v / 60; sincronizarMaquinas(r, cfg); }
+    else if (field === 'maq_manual') { p.maq_manual = !!v; sincronizarMaquinas(r, cfg); }
     else if (!['addmaq', 'addparte'].includes(field)) p[field] = v;
     render();
   }));

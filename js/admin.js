@@ -41,9 +41,9 @@ function ligarGrade(box, cols, onSave) {
 
 function setores(box, { S }, again) {
   const sp = S.cfg.setor_params || {};
-  const cols = [["setor", "Setor"], ["hora_media", "Hora média (R$/h)", "num"], ["meta_rnc_mes", "Meta RNCs/mês (máx.)", "num"], ["meta_custo_mes", "Meta custo NC/mês (R$ máx.)", "num"]];
-  const linhas = Object.keys(S.cfg.setores || {}).map((s) => ({ setor: s, ...(sp[s] || {}) }));
-  box.innerHTML = alerta("info", "A <b>hora média</b> é usada no cálculo do custo das RNCs do setor de origem. As <b>metas</b> são mensais e aparecem na Visão geral.") +
+  const cols = [["setor", "Setor"], ["hora_media", "Hora média (R$/h)", "num"], ["meta_rnc_mes", "Meta RNCs/mês (máx.)", "num"], ["meta_custo_mes", "Meta custo NC/mês (R$ máx.)", "num"], ["maq_igual", "Máquina = tempo da mão de obra", "sel", ["Sim", "Não"]]];
+  const linhas = Object.keys(S.cfg.setores || {}).map((s) => ({ setor: s, ...(sp[s] || {}), maq_igual: sp[s]?.maq_igual_mo ? "Sim" : "Não" }));
+  box.innerHTML = alerta("info", "A <b>hora média</b> é usada no cálculo do custo das RNCs do setor de origem. As <b>metas</b> são mensais e aparecem na Visão geral. Em setores com <b>Máquina = tempo da mão de obra</b> = Sim, o retrabalho com mão de obra apropria o mesmo tempo à máquina (automático, com opção de edição manual).") +
     card(grade(cols, linhas)) + card(row("c2", inp("chp", "Custo hora padrão (R$/h) — setores sem hora média", S.cfg.parametros.custo_hora_padrao, { type: "number" }),
       inp("ref", "Atualização automática das telas (segundos)", S.cfg.parametros.refresh_segundos, { type: "number" })) + `<button class="btn primary" id="par">💾 Salvar parâmetros</button>`, "Parâmetros");
   ligarGrade(box, cols, async (rows) => {
@@ -54,7 +54,7 @@ function setores(box, { S }, again) {
     if (removidos.length && !(await confirmar(`Remover os setores: ${removidos.join(", ")}?`, "Remover"))) return;
     const setoresNovos = Object.fromEntries(nomes.map((n) => [n, S.cfg.setores[n] || []]));
     const params = Object.fromEntries(rows.map((r) => [r.setor, { hora_media: r.hora_media === "" ? null : num(r.hora_media),
-      meta_rnc_mes: r.meta_rnc_mes === "" ? null : num(r.meta_rnc_mes), meta_custo_mes: r.meta_custo_mes === "" ? null : num(r.meta_custo_mes) }]));
+      meta_rnc_mes: r.meta_rnc_mes === "" ? null : num(r.meta_rnc_mes), meta_custo_mes: r.meta_custo_mes === "" ? null : num(r.meta_custo_mes), maq_igual_mo: r.maq_igual === "Sim" }]));
     await db.salvarConfig("setores", setoresNovos); await salvarCfg("setor_params", params, again, "Setores salvos.");
   });
   $("#par").onclick = () => salvarCfg("parametros", { ...S.cfg.parametros, custo_hora_padrao: num($("[data-k=chp]").value), refresh_segundos: Math.max(10, num($("[data-k=ref]").value)) }, again);
