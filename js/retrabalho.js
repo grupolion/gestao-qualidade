@@ -26,6 +26,8 @@ export const FLUXO_RETRABALHO = [
   [['terceirizacao', 'Terceirização']],
   [['inspecao-final', 'Inspeção Final']]
 ];
+const passos = new WeakMap(); // passo atual do preenchimento guiado, por registro
+const passoAtual = (r, n) => Math.min(Math.max(passos.get(r) || 0, 0), Math.max(n - 1, 0));
 const selecoes = new WeakMap(); // seleção provisória pertence ao registro em edição, não ao banco
 export function fluxoProcessos(cfg) {
   return Array.isArray(cfg.fluxo_retrabalho?.grupos) ? cfg.fluxo_retrabalho.grupos : FLUXO_RETRABALHO;
@@ -167,14 +169,23 @@ export function custosRetrabalho(r) {
     return c;
   }, { homem: 0, maquina: 0, material: num(r.custo_material), processo: 0, horas: 0, horas_maquina: 0 });
 }
+function erroProcesso(p, r) {
+  if (ehTerceiro(p.setor)) return num(p.custo_terceiro) > 0 ? '' : `Informe o custo da terceirização (${p.setor}).`;
+  if (num(p.horas_homem) < 0 || (p.maquinas || []).some(m => num(m.horas) < 0) || num(p.peso_retrab) < 0 || (p.pecas || []).some(x => num(x.qtd) < 0)) return 'Informe quantidades e tempos iguais ou maiores que zero.';
+  if (processoLinha(p.setor) && (!r.produto || !num(p.area_proc))) return `Informe o produto e a área retrabalhada de ${p.setor} (máquina inteira, peças ou peso).`;
+  if (!processoLinha(p.setor) && positivo(p.horas_homem) && !num(p.custo_hora)) return `Cadastre o valor hora-homem de ${p.setor} na Administração.`;
+  if ((p.maquinas || []).some(m => positivo(m.horas) && !num(m.valor_hora))) return `Cadastre o valor hora das máquinas de ${p.setor} na Administração.`;
+  return '';
+}
+// no passo a passo, cada processo precisa gerar custo antes de avançar
+function erroPasso(p, r) {
+  const e = erroProcesso(p, r);
+  if (e) return e;
+  if (!processoLinha(p.setor) && !ehTerceiro(p.setor) && !positivo(p.horas_homem) && !(p.maquinas || []).some(m => positivo(m.horas))) return `Informe o tempo (em minutos) de ${p.etapa_nome || p.setor} para formar o custo.`;
+  return '';
+}
 export function erroRetrabalho(r, cfg) {
-  for (const p of r.processos_retrabalho || []) {
-    if (ehTerceiro(p.setor)) { if (!(num(p.custo_terceiro) > 0)) return `Informe o custo da terceirização (${p.setor}).`; continue; }
-    if (num(p.horas_homem) < 0 || (p.maquinas || []).some(m => num(m.horas) < 0) || num(p.peso_retrab) < 0 || (p.pecas || []).some(x => num(x.qtd) < 0)) return 'Informe quantidades e horas iguais ou maiores que zero.';
-    if (processoLinha(p.setor) && (!r.produto || !num(p.area_proc))) return `Informe o produto e a área retrabalhada de ${p.setor} (máquina inteira, peças ou peso).`;
-    if (!processoLinha(p.setor) && positivo(p.horas_homem) && !num(p.custo_hora)) return `Cadastre o valor hora-homem de ${p.setor} na Administração.`;
-    if ((p.maquinas || []).some(m => positivo(m.horas) && !num(m.valor_hora))) return `Cadastre o valor hora das máquinas de ${p.setor} na Administração.`;
-  }
+  for (const p of r.processos_retrabalho || []) { const e = erroProcesso(p, r); if (e) return e; }
   if (num(r.custo_material) < 0) return 'Informe material e refugo iguais ou maiores que zero.';
   return '';
 }
@@ -187,7 +198,10 @@ export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
   let h = card(alerta('info', 'Selecione os processos realizados no retrabalho. Banho químico inclui pintura. O tempo é informado em minutos por processo manual; banho e pintura têm custo fixo por m².') +
     icombo('_rtproduto', 'Produto / Máquina (ficha técnica)', Object.values(ft.produtos).map(p => [p.codigo, `${p.codigo} — ${p.nome}`]), r.produto, { ...o, dis: dis || estadoFicha.carregando || !!estadoFicha.erro || !Object.keys(ft.produtos).length, ph: estadoFicha.carregando && !estadoFicha.erro ? 'Carregando máquinas…' : 'Pesquise por nome ou código…' }) +
     diagramaProcessos(r, cfg, dis), 'Fluxo de retrabalho');
+  const atual = passoAtual(r, ps.length), guiado = !dis && ps.length > 0;
+  if (guiado) h += card(`<div class="caption">Processo <b>${atual + 1}</b> de <b>${ps.length}</b> — preencha e clique em “Próximo processo”.</div><div class="rt-steps">${ps.map((p, i) => `<span class="rt-step ${i === atual ? 'on' : i < atual ? 'done' : ''}">${i < atual ? '✓ ' : ''}${esc(p.etapa_nome || p.setor)}</span>`).join(' › ')}</div>`, 'Passo a passo');
   h += ps.map((p, i) => {
+    if (guiado && i !== atual) return '';
     const proc = processoLinha(p.setor), k = field => `_rt.${i}.${field}`;
     const botoes = dis ? '' : `<div class="btnrow">${proc?.k === 'p' && temBanho ? '<span class="caption">Obrigatória após o banho</span>' : `<button class="btn sm danger" data-rtrm="${i}">Remover processo</button>`}</div>`;
     let body = '';
@@ -216,7 +230,8 @@ export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
         `<div class="caption">Custo da etapa: ${brl(positivo(p.horas_homem) * num(p.custo_hora) + (p.maquinas || []).reduce((s, m) => s + positivo(m.horas) * num(m.valor_hora), 0))}</div>`;
     }
     const passagem = !cfg.fluxo_retrabalho && p.etapa_id?.startsWith('solda-manual') ? (p.etapa_id.endsWith('1') ? ' · antes da montagem' : ' · após a montagem') : '';
-    return `<section data-rt-etapa="${esc(p.etapa_id || p.setor)}">${card(body + botoes, `${i + 1} · ${esc(p.etapa_nome || p.setor)}${passagem}`)}</section>`;
+    const nav = !guiado ? '' : `<div id="rt-erro"></div><div class="btnrow">${atual > 0 ? '<button class="btn" id="rt-ant">← Processo anterior</button>' : ''}<button class="btn primary" id="rt-prox">${atual < ps.length - 1 ? 'Próximo processo →' : 'Concluir processos ✓'}</button></div>`;
+    return `<section data-rt-etapa="${esc(p.etapa_id || p.setor)}">${card(body + botoes + nav, `${i + 1} · ${esc(p.etapa_nome || p.setor)}${passagem}`)}</section>`;
   }).join('');
   h += card(inum('custo_material', 'Material substituído / refugo (R$)', r.custo_material, { ...o, help: 'Informe apenas o material efetivamente substituído ou refugado. As peças selecionadas em banho/pintura definem a área e não são cobradas como material.' }) +
     row('c4 keep2', `<div>Horas-homem<br><b>${brl(totais.homem)}</b></div>`, `<div>Horas-máquina<br><b>${brl(totais.maquina)}</b></div>`, `<div>Banho / pintura<br><b>${brl(totais.processo)}</b></div>`, `<div class="metric"><div class="l">Total da ocorrência</div><div class="v" id="e-custo">${brl(totais.homem + totais.maquina + totais.processo + totais.material)}</div></div>`), 'Custo consolidado');
@@ -254,7 +269,25 @@ export function ligarRetrabalho(el, r, cfg, ft, render, dis) {
     $('.rt-count', el).textContent = `${ids.size} selecionado(s)`;
     $('#rt-pendente', el).textContent = 'Seleção alterada. Clique em Aplicar processos.';
   });
+  const ir = (n) => {
+    passos.set(r, n); render();
+    setTimeout(() => {
+      const alvo = document.querySelector('[data-rt-etapa]');
+      alvo?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.querySelector('[data-k^="_rt."], [data-combo^="_rt."]')?.focus({ preventScroll: true });
+    }, 50);
+  };
+  $('#rt-ant', el)?.addEventListener('click', () => ir(passoAtual(r, ps.length) - 1));
+  $('#rt-prox', el)?.addEventListener('click', () => {
+    const a = passoAtual(r, ps.length), e = erroPasso(ps[a], r);
+    const box = $('#rt-erro', el);
+    if (e) { box.innerHTML = alerta('warn', esc(e)); return; }
+    if (a < ps.length - 1) return ir(a + 1);
+    box.innerHTML = alerta('info', 'Todos os processos foram preenchidos. Confira o total abaixo e salve a ocorrência.');
+    $('#e-custo')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
   $('#rt-aplicar', el)?.addEventListener('click', () => {
+    passos.set(r, 0);
     aplicarProcessos(r, cfg, estado.ids); render();
     setTimeout(() => {
       const alvo = document.querySelector('[data-k^="_rt.0."], [data-combo^="_rt.0."]');

@@ -372,6 +372,7 @@ function painelMetas(el, f) {
 // ---------------- Não conformidades (lista) ----------------
 function paginaRnc(el) {
   const f = (S.filtros.rnc ||= { setor: "", status: "", q: "" });
+  if (!fichaCache && !paginaRnc._f) { paginaRnc._f = 1; ficha().then(() => { paginaRnc._f = 0; if (S.pagina === MENU[1] && $("#r-tab")) paginaRnc(el); }).catch(() => { paginaRnc._f = 0; }); }
   el.innerHTML = heading("Não conformidades", "Registre uma ocorrência e acompanhe sua resolução. Selecione uma linha para ver os detalhes.") +
     (S.draft?.tipo === "rnc" ? alerta("warn", `Você tem um formulário em andamento${S.draft.rec.id ? ` (${S.draft.rec.id})` : ""}. <button class="btn sm" id="r-ret">Continuar preenchimento</button> <button class="btn sm" id="r-desc">Descartar</button>`) : "") +
     `<div class="btnrow"><button class="btn primary" id="r-nova" ${setUser().length ? "" : "disabled"}>+ Registrar não conformidade</button></div>` +
@@ -383,11 +384,11 @@ function paginaRnc(el) {
   ligarFiltros($(".card", el), f, () => paginaRnc(el));
   const q = f.q.trim().toLowerCase();
   const L = S.rnc.filter((r) => (!f.setor || r.setor_origem === f.setor) && (!f.status || r.status === f.status) && (!f.emitente || r.emitente === f.emitente) &&
-    (!q || [r.id, r.descricao, r.cod_peca, r.desc_peca, r.op, r.tipo_nc].some((x) => String(x || "").toLowerCase().includes(q))));
+    (!q || [nome(r.emitente), r.produto, fichaCache?.produtos?.[r.produto]?.nome, r.id, r.descricao, r.cod_peca, r.desc_peca, r.op, r.tipo_nc].some((x) => String(x || "").toLowerCase().includes(q))));
   const rows = L.map((r) => { const A = S.acoes.filter((a) => a.rnc_id === r.id);
-    return { id: r.id, data: fdate(r.data), setor: r.setor_origem, tipo: r.tipo_nc, qtd: r.qtd_nc, status: r.status, resp: nome(r.responsavel),
+    return { emi: nome(r.emitente) || "—", maq: r.produto ? (fichaCache?.produtos?.[r.produto]?.nome ? `${r.produto} - ${fichaCache.produtos[r.produto].nome}` : r.produto) : (r.desc_peca || "—"), id: r.id, data: fdate(r.data), setor: r.setor_origem, tipo: r.tipo_nc, qtd: r.qtd_nc, status: r.status, resp: nome(r.responsavel),
       acoes: A.length, atr: A.filter(atrasada).length, custo: custo(r) }; });
-  const cols = [["id", "Nº"], ["data", "Data"], ["setor", "Setor origem"], ["tipo", "Tipo de NC"], ["qtd", "Qtd NC", "num"], ["status", "Status"], ["resp", "Responsável"], ["acoes", "Ações", "num"], ["atr", "Atrasadas", "num"], ["custo", "Custo", "brl"]];
+  const cols = [["emi", "Lançado por", "dest"], ["maq", "Máquina", "dest"], ["id", "Nº"], ["data", "Data"], ["setor", "Setor origem"], ["tipo", "Tipo de NC"], ["qtd", "Qtd NC", "num"], ["status", "Status"], ["resp", "Responsável"], ["acoes", "Ações", "num"], ["atr", "Atrasadas", "num"], ["custo", "Custo", "brl"]];
   const box = $("#r-tab");
   if (!rows.length) return (box.innerHTML = alerta("info", "Nenhuma ocorrência encontrada. Ajuste os filtros ou registre uma nova não conformidade."));
   box.innerHTML = `<div class="caption">${rows.length} registro(s) · clique em uma linha para abrir · atualizado ${hora()}</div>` + tabela(cols, rows, { click: true }) +

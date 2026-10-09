@@ -69,7 +69,7 @@ export function tabela(cols, rows, o = {}) {
   // cols: [chave, título, tipo('num'|'brl'|'wrap')]
   const cel = (c, r) => {
     const v = r[c[0]]; const t = c[2];
-    return `<td class="${t === "num" || t === "brl" ? "num" : t === "wrap" ? "wrap" : ""}">${t === "brl" ? brl(v) : esc(v)}</td>`;
+    return `<td class="${t === "num" || t === "brl" ? "num" : t === "wrap" ? "wrap" : t === "dest" ? "dest" : ""}">${t === "brl" ? brl(v) : esc(v)}</td>`;
   };
   return `<div class="tbl-wrap" ${o.h ? `style="max-height:${o.h}px"` : ""}><table><thead><tr>${cols.map((c) => `<th class="${c[2] === "num" || c[2] === "brl" ? "num" : ""}">${esc(c[1])}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r, i) => `<tr ${o.click ? `class="click" data-i="${i}"` : ""}>${cols.map((c) => cel(c, r)).join("")}</tr>`).join("")}</tbody></table></div>`;
