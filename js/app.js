@@ -2,9 +2,9 @@
 import * as db from "./db.js?v=20261005-minutos1";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
   inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261005-minutos1";
-import { paginaAdmin } from "./admin.js?v=20261016-materiais1";
-import { kgMaterial } from './materiais.js?v=20261016-materiais1';
-import { definirPeso, processoLinha, custosRetrabalho, calcularProcessos, converterRetrabalho, telaRetrabalho, ligarRetrabalho, erroRetrabalho, selecaoPendente } from './retrabalho.js?v=20261016-materiais1';
+import { paginaAdmin } from "./admin.js?v=20261016-materiais2";
+import { kgMaterial } from './materiais.js?v=20261016-materiais2';
+import { definirPeso, processoLinha, custosRetrabalho, calcularProcessos, converterRetrabalho, telaRetrabalho, ligarRetrabalho, erroRetrabalho, selecaoPendente } from './retrabalho.js?v=20261016-materiais2';
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -45,7 +45,7 @@ export const nome = (login) => S.perfis.find((p) => p.login === login)?.nome || 
 const pessoas = () => S.perfis.filter((p) => p.ativo).map((p) => [p.login, `${p.nome} (${p.login})`]);
 const statusDe = (r) => LEGADO[r.status] || r.status || APONTADO;
 // setores com linha de tempo fixo (custo por m²); taxas podem ser sobrescritas em parametros
-export { processoLinha } from './retrabalho.js?v=20261016-materiais1';
+export { processoLinha } from './retrabalho.js?v=20261016-materiais2';
 // área (m²) com a tabela atual de materiais — k: "b" banho (área total) | "p" pintura (tubo externa, chapa total)
 // chave vazia = máquina inteira; "C<cod>" = 1 componente; "M<cod>" = 1 unidade do material
 // chapa: consumo cheio (sem ÷1,06); tubo: consumo ÷1,06 (já gravado assim na ficha)

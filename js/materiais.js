@@ -1,7 +1,7 @@
 // Peso dos materiais (kg por unidade da ficha) e aba Administração → 🧱 Materiais.
 // Base: estimativa gerada por gerar_pesos_materiais.py (peso-materiais.js); ajustes e matérias-primas novas
 // ficam em config `pesos_materiais` {cod: {nome, un, kg, tipo, mat, a, b, e, obs}} e prevalecem sobre a base.
-import { PESO_MATERIAIS, COMO_MATERIAIS } from './peso-materiais.js?v=20261016-materiais1';
+import { PESO_MATERIAIS, COMO_MATERIAIS } from './peso-materiais.js?v=20261016-materiais2';
 import { esc, num, $, $$, card, row, alerta, toast } from './ui.js?v=20261005-minutos1';
 
 export const DENSIDADES = { "Aço carbono": 7850, "Aço inox": 7930, "Alumínio": 2700, "Latão": 8500, "Polipropileno (PP)": 905,

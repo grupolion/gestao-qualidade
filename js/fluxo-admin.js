@@ -1,6 +1,6 @@
 import * as db from './db.js?v=20261005-minutos1';
 import { esc, $, $$, card, row, inp, isel, alerta, toast } from './ui.js?v=20261005-minutos1';
-import { fluxoProcessos, catalogoProcessos, erroFluxo } from './retrabalho.js?v=20261016-materiais1';
+import { fluxoProcessos, catalogoProcessos, erroFluxo } from './retrabalho.js?v=20261016-materiais2';
 
 const rascunhos = new WeakMap();
 const novoProcesso = () => [`proc-${crypto.randomUUID()}`, '', ''];
