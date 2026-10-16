@@ -1,9 +1,10 @@
 // Painel do administrador (porta do admin.py)
 import * as db from "./db.js?v=20261005-minutos1";
 import { esc, $, $$, num, brl, toast, alerta, heading, card, row, inp, isel, ichk, tabela, confirmar } from "./ui.js?v=20261005-minutos1";
-import { editorFluxo } from './fluxo-admin.js?v=20261005-minutos1';
+import { editorFluxo } from './fluxo-admin.js?v=20261016-materiais1';
+import { abaMateriais } from './materiais.js?v=20261016-materiais1';
 
-const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "📐 Áreas", "🔒 Segurança", "🗑 Dados", "Diagrama de processos"];
+const ABAS = ["Setores e metas", "Defeitos por setor", "Usuários", "Máquinas", "Ficha técnica", "🧱 Materiais", "📐 Áreas", "🔒 Segurança", "🗑 Dados", "Diagrama de processos"];
 let aba = 0;
 
 export function paginaAdmin(el, ctx) {
@@ -12,7 +13,7 @@ export function paginaAdmin(el, ctx) {
   $$("[data-t]", el).forEach((b) => (b.onclick = () => { aba = +b.dataset.t; paginaAdmin(el, ctx); }));
   const box = $("#ad");
   const again = async () => { await ctx.recarregarCfg(); paginaAdmin(el, ctx); };
-  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), fichaTec, areasCalc, seguranca, dados, editorFluxo][aba](box, ctx, again);
+  [setores, defeitos, usuarios, (b, c, a) => cadastro(b, c, a, "maquinas"), fichaTec, (b, c, a) => abaMateriais(b, c, a, { db, salvarCfg }), areasCalc, seguranca, dados, editorFluxo][aba](box, ctx, again);
 }
 const salvarCfg = async (k, v, again, msg = "Salvo.") => {
   try { await db.salvarConfig(k, v); toast(msg); await again(); } catch (e) { toast("Erro: " + e.message); }
@@ -171,11 +172,12 @@ const nBR = (v) => { const x = parseFloat(String(v ?? "").replace(/\./g, (m, i, 
 // Importa view_ficha_tecnica.txt (';', decimal '.', UTF-8 BOM) — mesma regra do ficha.py
 // + áreas (area_tubos.csv) e pesos (peso.csv) para o custo de Pintura / Banho químico
 function fichaTec(box, ctx) {
-  const AM = ctx.S.cfg.area_materiais || {}, PS = ctx.S.cfg.pesos_maquinas || {};
-  box.innerHTML = card(alerta("info", "<b>area_tubos.csv</b> e <b>peso.csv</b> são usados no custo de Pintura e Banho químico. Cada arquivo pode ser atualizado separadamente, quando precisar: a área das máquinas/peças é calculada no app com a ficha e a tabela de áreas mais recentes.") +
-    row("c3", `<div class="field"><label>Áreas dos materiais (area_tubos.csv) · ${Object.keys(AM).length} cadastrados</label><input type="file" id="fa" accept=".csv,.txt"></div>`,
-      `<div class="field"><label>Pesos das máquinas (peso.csv) · ${Object.keys(PS).length} cadastrados</label><input type="file" id="fp" accept=".csv,.txt"></div>`,
-      `<div class="field"><label>Arquivo da ficha técnica</label><input type="file" id="ft" accept=".txt,.csv"></div>`) + `<div id="ftmsg"></div>`, "Ficha técnica, áreas e pesos");
+  const AM = ctx.S.cfg.area_materiais || {};
+  // pesos de máquina agora vêm só da ficha (aba 🧱 Materiais): limpa o cadastro antigo do peso.csv
+  if (Object.keys(ctx.S.cfg.pesos_maquinas || {}).length) db.salvarConfig("pesos_maquinas", {}).then(() => ctx.recarregarCfg()).catch(() => {});
+  box.innerHTML = card(alerta("info", "<b>area_tubos.csv</b> é usado no custo de Pintura e Banho químico. O peso das máquinas é <b>calculado automaticamente pela ficha</b> (kg por unidade de cada material — veja e edite na aba 🧱 Materiais). Cada arquivo pode ser atualizado separadamente, quando precisar: a área das máquinas/peças é calculada no app com a ficha e a tabela de áreas mais recentes.") +
+    row("c2", `<div class="field"><label>Áreas dos materiais (area_tubos.csv) · ${Object.keys(AM).length} cadastrados</label><input type="file" id="fa" accept=".csv,.txt"></div>`,
+      `<div class="field"><label>Arquivo da ficha técnica</label><input type="file" id="ft" accept=".txt,.csv"></div>`) + `<div id="ftmsg"></div>`, "Ficha técnica e áreas");
   const msg = $("#ftmsg");
   const ler = (id, fn) => ($(id).onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -198,13 +200,6 @@ function fichaTec(box, ctx) {
     if (!Object.keys(out).length) throw new Error("Nenhuma área encontrada — confira o cabeçalho do arquivo.");
     await db.salvarConfig("area_materiais", out);
     return `${Object.keys(out).length} material(is) com área salvos. As áreas das máquinas já usam a nova tabela (não precisa reimportar a ficha).`;
-  });
-  ler("#fp", async (txt) => {
-    const out = {};
-    for (const r of csvLer(txt)) { const cod = String(r.Codigo || r["Código"] || "").trim(), kg = nBR(r["Peso Kg"]); if (cod && kg > 0) out[cod] = kg; }
-    if (!Object.keys(out).length) throw new Error("Nenhum peso encontrado — confira o cabeçalho do arquivo.");
-    await db.salvarConfig("pesos_maquinas", out);
-    return `${Object.keys(out).length} peso(s) de máquina salvos.`;
   });
   ler("#ft", async (txt) => {
       // aceita "44.41", "44,41", "1.815,72", "1,815.72", "R$ 44,41" (export do Excel em pt-BR)

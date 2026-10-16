@@ -2,8 +2,9 @@
 import * as db from "./db.js?v=20261005-minutos1";
 import { esc, $, $$, num, brl, fdate, hoje, addDias, hora, toast, alerta, heading, card, row, exp, metric, tip,
   inp, inum, idate, itxt, isel, ichk, icombo, comboValor, tabela, modal, verImagem, imagemSegura, confirmar, baixarCSV } from "./ui.js?v=20261005-minutos1";
-import { paginaAdmin } from "./admin.js?v=20261005-minutos1";
-import { processoLinha, custosRetrabalho, calcularProcessos, converterRetrabalho, telaRetrabalho, ligarRetrabalho, erroRetrabalho, selecaoPendente } from './retrabalho.js?v=20261005-minutos1';
+import { paginaAdmin } from "./admin.js?v=20261016-materiais1";
+import { kgMaterial } from './materiais.js?v=20261016-materiais1';
+import { definirPeso, processoLinha, custosRetrabalho, calcularProcessos, converterRetrabalho, telaRetrabalho, ligarRetrabalho, erroRetrabalho, selecaoPendente } from './retrabalho.js?v=20261016-materiais1';
 
 // ---------------- constantes ----------------
 export const APONTADO = "Apontado";
@@ -44,7 +45,7 @@ export const nome = (login) => S.perfis.find((p) => p.login === login)?.nome || 
 const pessoas = () => S.perfis.filter((p) => p.ativo).map((p) => [p.login, `${p.nome} (${p.login})`]);
 const statusDe = (r) => LEGADO[r.status] || r.status || APONTADO;
 // setores com linha de tempo fixo (custo por m²); taxas podem ser sobrescritas em parametros
-export { processoLinha } from './retrabalho.js?v=20261005-minutos1';
+export { processoLinha } from './retrabalho.js?v=20261016-materiais1';
 // área (m²) com a tabela atual de materiais — k: "b" banho (área total) | "p" pintura (tubo externa, chapa total)
 // chave vazia = máquina inteira; "C<cod>" = 1 componente; "M<cod>" = 1 unidade do material
 // chapa: consumo cheio (sem ÷1,06); tubo: consumo ÷1,06 (já gravado assim na ficha)
@@ -56,6 +57,13 @@ function areaFicha(prod, chave, k) {
   const visto = new Set();
   return L.reduce((s, [c, m, q, , prodRow]) => { if (prodRow || "C" + c !== chave || visto.has(m)) return s; visto.add(m); return s + q * fatA(A[m]) * num(A[m]?.[k]); }, 0);
 }
+// Peso da máquina: sempre calculado pela ficha — Σ qtd material × consumo × qtd componente × kg/unidade
+// (linhas já vêm sem a perda de corte de 6%, que a ficha embute no consumo)
+function pesoFicha(prod) {
+  return (fichaCache?.produtos?.[prod]?.linhas || []).reduce((s, [, m, q, qc]) => s + q * qc * kgMaterial(S.cfg, m), 0);
+}
+function pesoMaquina(prod) { return Math.round(pesoFicha(prod) * 10) / 10; }
+definirPeso(pesoMaquina);
 const fnum = (v) => num(v).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 export function custo(r) { const c = custosRetrabalho(r); return c.homem + c.maquina + c.material + c.processo; }
 const atrasada = (a) => !!a.quando && !["Concluída", "Cancelada"].includes(a.status) && a.quando.slice(0, 10) < hoje();
@@ -456,7 +464,7 @@ async function editorRnc(el) {
   const PROC = !multi && processoLinha(r.setor_origem);
   if (multi && !fin && fichaCache) calcularProcessos(r, S.cfg, areaFicha);
   const areaMaq = PROC && r.produto ? areaFicha(r.produto, "", PROC.k) : 0;
-  const pesoMaq = PROC ? num((S.cfg.pesos_maquinas || {})[r.produto]) : 0;
+  const pesoMaq = PROC && r.produto ? pesoMaquina(r.produto) : 0;
   if (!fin) {
     if (PROC) {
       if (r.metodo_proc !== "peso") r.metodo_proc = "pecas";
@@ -533,9 +541,9 @@ async function editorRnc(el) {
       const mm = PROC.k === "p" ? "tubos: área externa · chapas: área total" : "área total (interna + externa)";
       const ptxt = r.metodo_proc === "peso"
         ? row("c3", inum("peso_retrab", "Peso retrabalhado (kg)", r.peso_retrab, { ...o, help: "Peso total da peça/conjunto retrabalhado desta máquina" }),
-            `<div class="metric"><div class="l">Peso da máquina</div><div class="v">${pesoMaq ? fnum(pesoMaq) + " kg" : "—"}</div></div>`,
+            `<div class="metric"><div class="l">Peso da máquina</div><div class="v">${pesoMaq ? fnum(pesoMaq) + " kg" : "—"}</div><div class="caption">calculado pela ficha</div></div>`,
             `<div class="metric"><div class="l">Área da máquina</div><div class="v">${areaMaq ? fnum(areaMaq) + " m²" : "—"}</div></div>`) +
-          (r.produto && !pesoMaq ? alerta("warn", "Sem peso cadastrado para este produto (Administração → Ficha técnica → peso.csv).") : "") +
+          (r.produto && !pesoMaq ? alerta("warn", "Não foi possível calcular o peso deste produto pela ficha técnica; confira os pesos dos materiais em Administração → 🧱 Materiais.") : "") +
           `<div class="caption">Área = ${fnum(areaMaq)} m² × ${fnum(num(r.peso_retrab))} kg ÷ ${fnum(pesoMaq)} kg</div>`
         : "";
       h += card(isel("metodo_proc", `Como calcular o custo de ${PROC.nome}`, [["pecas", "Peças identificadas (ficha técnica)"], ["peso", "Proporcional ao peso (não sei as peças)"]], r.metodo_proc, { ...o, estrito: true }) + ptxt +

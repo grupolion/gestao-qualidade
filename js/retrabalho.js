@@ -134,13 +134,15 @@ export function converterRetrabalho(r, setores) {
     valor_m2: num(r.valor_m2), custo_processo: num(r.custo_processo) }] : [];
   garantirPintura(r, setores);
 }
+let pesoMaq = () => 0;
+export function definirPeso(fn) { pesoMaq = (prod) => positivo(fn(prod)); }
 export function calcularProcessos(r, cfg, areaFicha) {
   for (const p of r.processos_retrabalho) {
     const proc = processoLinha(p.setor);
     if (ehTerceiro(p.setor)) { p.custo_processo = centavos(positivo(p.custo_terceiro)); p.horas_homem = 0; p.maquinas = []; continue; }
     if (proc) {
       const base = p.mesmo_banho && proc.k === 'p' ? r.processos_retrabalho.find(x => processoLinha(x.setor)?.k === 'b') || p : p;
-      const areaMaq = areaFicha(r.produto, '', proc.k), peso = positivo(cfg.pesos_maquinas?.[r.produto]);
+      const areaMaq = areaFicha(r.produto, '', proc.k), peso = pesoMaq(r.produto, cfg);
       const area = base.metodo_proc === 'peso' ? (peso ? areaMaq * positivo(base.peso_retrab) / peso : 0)
         : base.produto_inteiro ? areaMaq * positivo(r.qtd_nc)
         : (base.pecas || []).reduce((s, x) => s + positivo(x.qtd) * areaFicha(r.produto, x.chave, proc.k), 0);
@@ -228,7 +230,7 @@ export function telaRetrabalho(r, cfg, ft, dis, estadoFicha = {}) {
       if (proc.k === 'p' && temBanho) body += ichk(k('mesmo_banho'), 'Usar as mesmas peças/peso do banho químico', p.mesmo_banho, o);
       if (!(p.mesmo_banho && proc.k === 'p' && temBanho)) {
         body += isel(k('metodo_proc'), 'Como calcular a área retrabalhada', [['pecas', 'Máquina inteira ou peças identificadas'], ['peso', 'Proporcional ao peso']], p.metodo_proc || 'pecas', o);
-        if (p.metodo_proc === 'peso') body += inum(k('peso_retrab'), 'Peso total retrabalhado (kg)', p.peso_retrab, o) + (!num(cfg.pesos_maquinas?.[r.produto]) ? alerta('warn', 'Sem peso cadastrado para este produto.') : '');
+        if (p.metodo_proc === 'peso') body += inum(k('peso_retrab'), 'Peso total retrabalhado (kg)', p.peso_retrab, o) + (!pesoMaq(r.produto, cfg) ? alerta('warn', 'Sem peso calculável pela ficha — confira Administração → 🧱 Materiais.') : `<div class="caption">Peso da máquina: ${pesoMaq(r.produto, cfg).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} kg</div>`);
         else {
           body += ichk(k('produto_inteiro'), 'Máquina inteira × Qtd NC', p.produto_inteiro, o);
           if (!p.produto_inteiro) body += icombo(k('addparte'), 'Adicionar peça retrabalhada (busque por nome ou código)', Object.entries(ft.partes[r.produto] || {}).filter(([chave, x]) => !chave.startsWith('_') && x && !p.pecas?.some(y => y.chave === chave)).map(([chave, x]) => [chave, `${x.codigo} — ${x.nome}${tamTubo(ft, cfg, r.produto, chave)}`]).sort((x, y) => ordemAlfa(x[1], y[1])), '', { ...o, ph: 'Digite para buscar a peça…' }) +
